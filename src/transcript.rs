@@ -1,0 +1,184 @@
+//! Reading Claude Code session transcripts.
+//!
+//! Claude Code writes one JSONL file per session under
+//! `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`. The encoded cwd is
+//! the absolute path with `/` and `.` replaced by `-`. We locate the session
+//! belonging to an agent (newest file in that dir), then parse the tail of it
+//! to derive title, recent phrases, todo progress and touched directories.
+
+use crate::agent::{AgentState, Status};
+use anyhow::Result;
+use std::collections::BTreeSet;
+use std::fs;
+use std::io::{Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
+
+const MAX_PHRASES: usize = 4;
+/// How much of the (potentially huge) transcript tail to parse per poll.
+const TAIL_BYTES: u64 = 512 * 1024;
+/// Activity newer than this counts as "working".
+const WORKING_WINDOW: Duration = Duration::from_secs(20);
+
+/// Encode an absolute cwd the way Claude Code names its project directory.
+fn encode_cwd(cwd: &Path) -> String {
+    let s = cwd.to_string_lossy();
+    s.chars()
+        .map(|c| if c == '/' || c == '.' || c == '_' { '-' } else { c })
+        .collect()
+}
+
+/// Path to the per-project transcript directory for a cwd.
+pub fn project_dir(cwd: &Path) -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    Some(home.join(".claude/projects").join(encode_cwd(cwd)))
+}
+
+/// Find the newest `*.jsonl` session file for a cwd, modified at or after
+/// `not_before` (the agent's launch time, minus a small grace).
+pub fn newest_session(cwd: &Path, not_before: SystemTime) -> Option<PathBuf> {
+    let dir = project_dir(cwd)?;
+    let grace = not_before
+        .checked_sub(Duration::from_secs(5))
+        .unwrap_or(not_before);
+    let mut best: Option<(SystemTime, PathBuf)> = None;
+    for entry in fs::read_dir(&dir).ok()?.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else { continue };
+        let Ok(mtime) = meta.modified() else { continue };
+        if mtime < grace {
+            continue;
+        }
+        if best.as_ref().map(|(t, _)| mtime > *t).unwrap_or(true) {
+            best = Some((mtime, path));
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
+/// Read the last `TAIL_BYTES` of a file as a string (dropping a possibly
+/// partial first line).
+fn read_tail(path: &Path) -> Result<(String, SystemTime)> {
+    let mut f = fs::File::open(path)?;
+    let len = f.metadata()?.len();
+    let mtime = f.metadata()?.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+    let start = len.saturating_sub(TAIL_BYTES);
+    f.seek(SeekFrom::Start(start))?;
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf)?;
+    let mut text = String::from_utf8_lossy(&buf).into_owned();
+    if start > 0 {
+        if let Some(nl) = text.find('\n') {
+            text = text[nl + 1..].to_string();
+        }
+    }
+    Ok((text, mtime))
+}
+
+/// Parse the transcript tail into an [`AgentState`].
+pub fn parse(path: &Path, root: &Path) -> Result<AgentState> {
+    let (text, mtime) = read_tail(path)?;
+    let mut state = AgentState::default();
+    let mut dirs: BTreeSet<PathBuf> = BTreeSet::new();
+    // Always anchor the root directory.
+    dirs.insert(root.to_path_buf());
+
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        match v.get("type").and_then(|t| t.as_str()) {
+            Some("ai-title") => {
+                if let Some(t) = v.get("aiTitle").and_then(|t| t.as_str()) {
+                    state.title = Some(t.to_string());
+                }
+            }
+            Some("assistant") => {
+                let content = v
+                    .get("message")
+                    .and_then(|m| m.get("content"))
+                    .and_then(|c| c.as_array());
+                let Some(content) = content else { continue };
+                for block in content {
+                    match block.get("type").and_then(|t| t.as_str()) {
+                        Some("text") => {
+                            if let Some(txt) = block.get("text").and_then(|t| t.as_str()) {
+                                let txt = txt.trim();
+                                if !txt.is_empty() {
+                                    push_phrase(&mut state, txt);
+                                }
+                            }
+                        }
+                        Some("tool_use") => {
+                            harvest_tool_use(block, &mut state, &mut dirs);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    state.work_dirs = dirs.into_iter().collect();
+    state.last_activity = Some(mtime);
+    state.status = match mtime.elapsed() {
+        Ok(e) if e <= WORKING_WINDOW => Status::Working,
+        _ => Status::Idle,
+    };
+    Ok(state)
+}
+
+fn push_phrase(state: &mut AgentState, txt: &str) {
+    // Collapse whitespace and clamp length for display.
+    let one_line: String = txt.split_whitespace().collect::<Vec<_>>().join(" ");
+    let clipped: String = one_line.chars().take(200).collect();
+    state.last_phrases.push_back(clipped);
+    while state.last_phrases.len() > MAX_PHRASES {
+        state.last_phrases.pop_front();
+    }
+}
+
+/// Pull todo progress and touched directories out of a tool_use block.
+fn harvest_tool_use(
+    block: &serde_json::Value,
+    state: &mut AgentState,
+    dirs: &mut BTreeSet<PathBuf>,
+) {
+    let name = block.get("name").and_then(|n| n.as_str()).unwrap_or("");
+    let input = block.get("input");
+    let Some(input) = input else { return };
+
+    if name == "TodoWrite" {
+        if let Some(todos) = input.get("todos").and_then(|t| t.as_array()) {
+            let total = todos.len();
+            let done = todos
+                .iter()
+                .filter(|t| t.get("status").and_then(|s| s.as_str()) == Some("completed"))
+                .count();
+            if total > 0 {
+                state.todos = Some((done, total));
+            }
+        }
+        return;
+    }
+
+    // File-touching tools expose an absolute path; record its parent dir.
+    for key in ["file_path", "path", "notebook_path"] {
+        if let Some(p) = input.get(key).and_then(|p| p.as_str()) {
+            let path = PathBuf::from(p);
+            if let Some(parent) = path.parent() {
+                if parent.is_absolute() {
+                    dirs.insert(parent.to_path_buf());
+                }
+            }
+        }
+    }
+}
