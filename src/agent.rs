@@ -36,6 +36,9 @@ pub struct AgentState {
     /// Timestamp of the last transcript activity.
     pub last_activity: Option<SystemTime>,
     pub status: Status,
+    /// Identifier (uuid) of the most recent completed turn (`stop_reason ==
+    /// "end_turn"`). A change in this marks a freshly completed task.
+    pub final_marker: Option<String>,
 }
 
 /// One Claude project node.
@@ -52,6 +55,16 @@ pub struct Agent {
     /// Resolved transcript file, once located.
     pub transcript: Option<PathBuf>,
     pub state: AgentState,
+    /// Recent activity load samples (0-100%), newest last. Derived from how
+    /// fast the transcript is growing.
+    pub activity: VecDeque<u8>,
+    /// Last observed transcript byte length (scanner bookkeeping for deltas).
+    pub last_len: u64,
+    /// When the agent most recently completed a task (finished a turn).
+    pub completed_at: Option<SystemTime>,
+    /// Count of completed tasks — increments on each completion so the web UI
+    /// can fire its animation exactly once per event.
+    pub completions: u64,
 }
 
 impl Agent {
@@ -62,7 +75,24 @@ impl Agent {
             pids: Vec::new(),
             transcript: None,
             state: AgentState::default(),
+            activity: VecDeque::new(),
+            last_len: 0,
+            completed_at: None,
+            completions: 0,
         }
+    }
+
+    /// Whether the agent completed a task within the last `secs` seconds.
+    pub fn just_completed(&self, secs: u64) -> bool {
+        self.completed_at
+            .and_then(|t| t.elapsed().ok())
+            .map(|e| e.as_secs() < secs)
+            .unwrap_or(false)
+    }
+
+    /// Current activity load (0-100%), the latest sample.
+    pub fn load(&self) -> u8 {
+        self.activity.back().copied().unwrap_or(0)
     }
 
     /// Whether this agent's terminal can be opened (it's in enxame's tmux).
