@@ -21,6 +21,7 @@ use tungstenite::handshake::derive_accept_key;
 #[derive(Serialize)]
 struct AgentDto {
     label: String,
+    id: String,
     cwd: String,
     openable: bool,
     wid: Option<String>,
@@ -63,6 +64,7 @@ fn to_dto(a: &Agent) -> AgentDto {
         .filter(|p| seen.insert(p.clone()))
         .collect();
     AgentDto {
+        id: a.id.clone(),
         label: a.label(),
         cwd: a.cwd.to_string_lossy().into_owned(),
         openable: a.openable(),
