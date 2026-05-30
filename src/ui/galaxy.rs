@@ -1,20 +1,43 @@
-//! Free-form "galaxy" rendering.
-//!
-//! Each agent is a star (the project core) placed in its own region of a grid
-//! — free placement that never overlaps. From the star a line descends into a
-//! vertical column of the folders the agent has touched (names only), drawn as
-//! tree branches. External claudes (not in enxame's tmux) are dimmed.
+//! Node-field rendering: each agent is a compact rounded card, spread across
+//! the canvas, with solid line-drawn arrows fanning out to the folders it has
+//! touched. External claudes (not in enxame's tmux) are dimmed.
 
 use super::HitBox;
 use crate::agent::{Agent, Status};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Borders, Widget};
 
-/// How many leading chars of the last phrase to show.
-const PHRASE_LEN: usize = 40;
+const PHRASE_LEN: usize = 60;
 
-/// Draw all agents as a galaxy field within `area`. Returns clickable cores.
+/// Large, glanceable 3-row "seven-segment" digits for the quick-jump number.
+const BIG_DIGITS: [[&str; 3]; 10] = [
+    ["┏━┓", "┃ ┃", "┗━┛"], // 0
+    [" ╻ ", " ┃ ", " ╹ "], // 1
+    ["┏━┓", "┏━┛", "┗━┛"], // 2
+    ["┏━┓", " ━┫", "┗━┛"], // 3
+    ["┃ ┃", "┗━┫", "  ╹"], // 4
+    ["┏━┓", "┗━┓", "┗━┛"], // 5
+    ["┏━┓", "┣━┓", "┗━┛"], // 6
+    ["┏━┓", "  ┃", "  ╹"], // 7
+    ["┏━┓", "┣━┫", "┗━┛"], // 8
+    ["┏━┓", "┗━┫", "┗━┛"], // 9
+];
+
+const C_BAR_FILL: Color = Color::Rgb(110, 200, 150);
+const C_BAR_EMPTY: Color = Color::Rgb(70, 75, 95);
+
+const C_ARROW: Color = Color::Rgb(95, 125, 165);
+const C_ARROW_SEL: Color = Color::Rgb(120, 200, 255);
+const C_FOLDER: Color = Color::Rgb(150, 180, 220);
+const C_BORDER_SEL: Color = Color::Rgb(120, 205, 255);
+const C_BORDER_TMUX: Color = Color::Rgb(80, 135, 175); // openable (in tmux)
+const C_BORDER_EXT: Color = Color::Rgb(64, 66, 82); // external (monitor only)
+const C_TAG_TMUX: Color = Color::Rgb(110, 200, 245);
+
+/// Draw all agents as a node field within `area`. Returns clickable cards.
 pub fn draw(buf: &mut Buffer, area: Rect, agents: &[Agent], selected: usize) -> Vec<HitBox> {
     let mut hits = Vec::new();
     let n = agents.len();
@@ -22,7 +45,6 @@ pub fn draw(buf: &mut Buffer, area: Rect, agents: &[Agent], selected: usize) -> 
         return hits;
     }
 
-    // Lay galaxies on a roughly square grid of regions.
     let cols = (n as f32).sqrt().ceil() as usize;
     let rows = n.div_ceil(cols);
     let cell_w = area.width / cols as u16;
@@ -37,88 +59,34 @@ pub fn draw(buf: &mut Buffer, area: Rect, agents: &[Agent], selected: usize) -> 
             width: cell_w,
             height: cell_h,
         };
-        if let Some(hit) = draw_galaxy(buf, region, agent, i, i == selected) {
+        if let Some(hit) = draw_node(buf, region, agent, i, i == selected) {
             hits.push(hit);
         }
     }
     hits
 }
 
-fn draw_galaxy(
+fn draw_node(
     buf: &mut Buffer,
     region: Rect,
     agent: &Agent,
     idx: usize,
     selected: bool,
 ) -> Option<HitBox> {
-    if region.height < 2 || region.width < 6 {
+    if region.height < 4 || region.width < 14 {
         return None;
     }
     let external = !agent.openable();
     let dim = Style::new().fg(Color::DarkGray);
 
-    let x0 = region.x as i32 + 1;
-    let text_x = x0 + 2; // indent text under the star
-    let inner_w = region.width.saturating_sub(3) as usize;
-    let mut y = region.y as i32 + 1;
-
-    // --- core: star + project name ---
-    let (glyph, color) = match agent.state.status {
-        _ if external => ("✦", Color::DarkGray),
-        Status::Working => ("★", Color::Green),
-        Status::Idle => ("☆", Color::Yellow),
-        Status::Unknown => ("✦", Color::DarkGray),
+    let inner = Rect {
+        x: region.x + 1,
+        y: region.y + 1,
+        width: region.width.saturating_sub(2),
+        height: region.height.saturating_sub(2),
     };
-    // Quick-jump number badge (1-based). Press the digit to select this agent.
-    let num_label = format!("{}", idx + 1);
-    let num_style = if selected {
-        Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD | Modifier::REVERSED)
-    } else {
-        Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)
-    };
-    put_str(buf, region, x0, y, &num_label, num_style);
 
-    let star_x = x0 + num_label.chars().count() as i32 + 1;
-    let star_style = if selected {
-        Style::new().fg(color).add_modifier(Modifier::BOLD | Modifier::REVERSED)
-    } else {
-        Style::new().fg(color).add_modifier(Modifier::BOLD)
-    };
-    put_str(buf, region, star_x, y, glyph, star_style);
-
-    let name_x = star_x + 2;
-    let name_avail = (region.right() as i32 - name_x).max(0) as usize;
-    let name = clip(&agent.label(), name_avail);
-    let name_style = if external {
-        dim.add_modifier(Modifier::BOLD)
-    } else if selected {
-        Style::new().fg(Color::White).add_modifier(Modifier::BOLD)
-    } else {
-        Style::new().fg(Color::Gray).add_modifier(Modifier::BOLD)
-    };
-    put_str(buf, region, name_x, y, &name, name_style);
-    let core_row = y as u16;
-    y += 1;
-
-    // --- meta: status + progress ---
-    let meta = meta_line(agent);
-    let meta_style = if external { dim } else { Style::new().fg(Color::Magenta) };
-    put_str(buf, region, text_x, y, &clip(&meta, inner_w), meta_style);
-    y += 1;
-
-    // --- phrase: only the beginning ---
-    if let Some(p) = agent.state.last_phrases.back() {
-        let phrase = clip_phrase(p, PHRASE_LEN.min(inner_w));
-        let pstyle = if external {
-            dim.add_modifier(Modifier::ITALIC)
-        } else {
-            Style::new().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)
-        };
-        put_str(buf, region, text_x, y, &phrase, pstyle);
-        y += 1;
-    }
-
-    // --- folder column: a line descending into a vertical list of folders ---
+    // Folders (names only, deduped).
     let mut seen = std::collections::HashSet::new();
     let folders: Vec<String> = agent
         .state
@@ -129,62 +97,170 @@ fn draw_galaxy(
         .filter(|name| seen.insert(name.clone()))
         .collect();
 
-    if !folders.is_empty() {
-        let gx = x0 + 1; // guide column (the descending line)
-        let guide_style = dim;
-        let folder_style = if external { dim } else { Style::new().fg(Color::Blue) };
+    // Card on top (full width), arrows + folders below.
+    let card_h = 5u16.min(inner.height.saturating_sub(2)).max(3);
+    let card = Rect { x: inner.x, y: inner.y, width: inner.width, height: card_h };
+    draw_card(buf, card, agent, idx, selected, external);
 
-        // The line leaving the star.
-        put_str(buf, region, gx, y, "│", guide_style);
-        y += 1;
+    if !folders.is_empty() && inner.bottom() > card.bottom() {
+        let arrow_color = if external { Color::Rgb(80, 85, 100) } else if selected { C_ARROW_SEL } else { C_ARROW };
+        let folder_style = if external { dim } else { Style::new().fg(C_FOLDER) };
 
-        let bottom = region.bottom() as i32;
-        let avail = (bottom - y).max(0) as usize;
-        // Reserve one row for a "+N" note if the list won't fit.
-        let (show, overflow) = if folders.len() <= avail {
-            (folders.len(), 0)
-        } else {
-            (avail.saturating_sub(1), folders.len() - avail.saturating_sub(1))
-        };
+        // A solid "bus" drops from the card's bottom border and fans out one
+        // arrow per folder.
+        let bus_x = inner.x as i32 + 4;
+        let arrow_st = Style::new().fg(arrow_color);
 
-        for (k, name) in folders.iter().take(show).enumerate() {
-            let last = k + 1 == show && overflow == 0;
-            let branch = if last { "╰─ " } else { "├─ " };
-            let label = clip(name, inner_w.saturating_sub(3));
-            put_str(buf, region, gx, y, branch, guide_style);
-            put_str(buf, region, gx + 3, y, &label, folder_style);
-            y += 1;
-        }
-        if overflow > 0 {
-            put_str(buf, region, gx, y, &format!("╰─ +{overflow} more"), guide_style);
+        // Tee on the card's bottom border, then one connector row of bus.
+        put_str(buf, inner, bus_x, card.bottom() as i32 - 1, "┬", arrow_st);
+        let mut fy = card.bottom() as i32;
+
+        // Show every folder (no truncation); rows past the cell are clipped by
+        // put_str's bounds check.
+        let n = folders.len();
+        for (k, name) in folders.iter().enumerate() {
+            let last = k + 1 == n;
+            let branch = if last { "╰──▶ " } else { "├──▶ " };
+            put_str(buf, inner, bus_x, fy, branch, arrow_st);
+            let name_x = bus_x + branch.chars().count() as i32;
+            put_str(buf, inner, name_x, fy, name, folder_style);
+            fy += 1;
         }
     }
 
-    // Clickable region: the core line (star + name).
     Some(HitBox {
         idx,
-        left: region.x,
-        right: region.right(),
-        top: core_row,
-        bottom: core_row + 1,
+        left: card.x,
+        right: card.right(),
+        top: card.y,
+        bottom: card.bottom(),
     })
 }
 
-/// Build the "working  ▓▓▓░ 3/7" style meta line.
-fn meta_line(agent: &Agent) -> String {
-    let status = match agent.state.status {
-        Status::Working => "working",
-        Status::Idle => "idle",
-        Status::Unknown => "·",
+fn draw_card(
+    buf: &mut Buffer,
+    card: Rect,
+    agent: &Agent,
+    idx: usize,
+    selected: bool,
+    external: bool,
+) {
+    let (dot, dot_color) = match agent.state.status {
+        Status::Working => ("●", if external { Color::Rgb(120, 120, 130) } else { Color::Rgb(120, 230, 140) }),
+        Status::Idle => ("○", if external { Color::Rgb(120, 120, 130) } else { Color::Rgb(235, 205, 110) }),
+        Status::Unknown => ("·", Color::Rgb(150, 150, 160)),
     };
-    match agent.state.todos {
-        Some((done, total)) if total > 0 => {
-            let w = 6usize;
-            let filled = (done * w) / total;
-            let bar: String = "▓".repeat(filled) + &"░".repeat(w - filled);
-            format!("{status}  {bar} {done}/{total}")
+
+    // Border + corner tag make the tmux/external distinction obvious.
+    let border_style = if selected {
+        Style::new().fg(C_BORDER_SEL).add_modifier(Modifier::BOLD)
+    } else if external {
+        Style::new().fg(C_BORDER_EXT)
+    } else {
+        Style::new().fg(C_BORDER_TMUX)
+    };
+    let tag = if external {
+        Span::styled(" ext ", Style::new().fg(Color::Rgb(120, 120, 135)))
+    } else {
+        Span::styled(" ⧉ tmux ", Style::new().fg(C_TAG_TMUX).add_modifier(Modifier::BOLD))
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(border_style)
+        .title(Line::from(tag).right_aligned());
+    let in_card = block.inner(card);
+    block.render(card, buf);
+
+    let cx = in_card.x as i32;
+    let cy = in_card.y as i32;
+
+    // --- big quick-jump number on the left (spans the 3 inner rows) ---
+    let digits: Vec<usize> = {
+        let num = idx + 1;
+        num.to_string().chars().map(|c| c as usize - '0' as usize).collect()
+    };
+    let num_style = if selected {
+        Style::new().fg(C_ARROW_SEL).add_modifier(Modifier::BOLD)
+    } else if external {
+        Style::new().fg(Color::Rgb(95, 100, 120)).add_modifier(Modifier::BOLD)
+    } else {
+        Style::new().fg(Color::Rgb(165, 185, 220)).add_modifier(Modifier::BOLD)
+    };
+    for row in 0..3 {
+        let mut line = String::new();
+        for d in &digits {
+            line.push_str(BIG_DIGITS[*d][row]);
+            line.push(' ');
         }
-        _ => status.to_string(),
+        put_str(buf, in_card, cx, cy + row as i32, &line, num_style);
+    }
+
+    // info column to the right of the number
+    let info_x = cx + digits.len() as i32 * 4 + 1;
+    let info_w = (in_card.right() as i32 - info_x).max(0) as usize;
+
+    // row 0: status dot + name
+    put_str(buf, in_card, info_x, cy, dot, Style::new().fg(dot_color).add_modifier(Modifier::BOLD));
+    let name = clip(&agent.label(), info_w.saturating_sub(2));
+    // The session title is always shown in full colour, even for external
+    // agents — only the rest of an external card is dimmed.
+    let name_style = if selected {
+        Style::new().fg(Color::White).add_modifier(Modifier::BOLD)
+    } else {
+        Style::new().fg(Color::Rgb(205, 210, 225)).add_modifier(Modifier::BOLD)
+    };
+    put_str(buf, in_card, info_x + 2, cy, &name, name_style);
+
+    // row 1: progress bar (always present)
+    if in_card.height >= 2 {
+        draw_progress(buf, in_card, info_x, cy + 1, info_w, agent.state.todos, external);
+    }
+
+    // row 2: beginning of last phrase
+    if in_card.height >= 3 {
+        if let Some(p) = agent.state.last_phrases.back() {
+            let phrase = clip_phrase(p, PHRASE_LEN.min(info_w));
+            let pstyle = Style::new()
+                .fg(if external { Color::DarkGray } else { Color::Rgb(120, 125, 140) })
+                .add_modifier(Modifier::ITALIC);
+            put_str(buf, in_card, info_x, cy + 2, &phrase, pstyle);
+        }
+    }
+}
+
+/// Render a progress bar; always draws a bar, even when the todo count is
+/// unknown (a dim, empty track).
+fn draw_progress(
+    buf: &mut Buffer,
+    region: Rect,
+    x: i32,
+    y: i32,
+    avail: usize,
+    todos: Option<(usize, usize)>,
+    external: bool,
+) {
+    let w = avail.saturating_sub(6).clamp(3, 18);
+    let empty = Style::new().fg(C_BAR_EMPTY);
+    match todos {
+        Some((done, total)) if total > 0 => {
+            let filled = ((done * w) / total).min(w);
+            let fcol = if external { Style::new().fg(Color::Rgb(90, 110, 100)) } else { Style::new().fg(C_BAR_FILL) };
+            put_str(buf, region, x, y, &"━".repeat(filled), fcol);
+            put_str(buf, region, x + filled as i32, y, &"─".repeat(w - filled), empty);
+            put_str(
+                buf,
+                region,
+                x + w as i32 + 1,
+                y,
+                &format!("{done}/{total}"),
+                Style::new().fg(Color::Rgb(140, 150, 170)),
+            );
+        }
+        _ => {
+            // Unknown progress: a slim, quiet rule rather than chunky blocks.
+            put_str(buf, region, x, y, &"─".repeat(w), empty);
+        }
     }
 }
 
@@ -206,7 +282,6 @@ fn put_str(buf: &mut Buffer, region: Rect, x: i32, y: i32, s: &str, style: Style
     buf.set_string(start as u16, y as u16, shown, style);
 }
 
-/// Clip a label to `max` chars (hard cut, no ellipsis — for folder names).
 fn clip(s: &str, max: usize) -> String {
     if max == 0 {
         return String::new();
@@ -214,8 +289,6 @@ fn clip(s: &str, max: usize) -> String {
     s.chars().take(max).collect()
 }
 
-/// Clip a phrase to its first `max` chars, collapsing whitespace, with an
-/// ellipsis if truncated — we only want the beginning.
 fn clip_phrase(s: &str, max: usize) -> String {
     let one: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
     if max == 0 {
