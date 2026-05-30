@@ -7,9 +7,11 @@
 
 mod galaxy;
 
+use crate::agent::Status;
 use crate::app::{App, Mode};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use std::time::Duration;
 
 /// A clickable region (the core of a galaxy) mapping screen cells to an agent.
 #[derive(Clone, Copy)]
@@ -66,14 +68,58 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(title), area);
 }
 
+/// A proper bottom status bar: a filled strip with the selected agent's
+/// context on the left (or a transient message), and compact key hints on the
+/// right.
 fn render_status(f: &mut Frame, area: Rect, app: &App) {
-    f.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            app.status.clone(),
-            Style::new().fg(Color::DarkGray),
-        ))),
-        area,
-    );
+    let bar_bg = Style::new().bg(Color::Rgb(24, 28, 40)).fg(Color::Gray);
+    f.buffer_mut().set_style(area, bar_bg);
+
+    // LEFT: a fresh transient message, else the selected agent's context.
+    let fresh = !app.status.is_empty() && app.status_at.elapsed() < Duration::from_secs(5);
+    let left = if fresh {
+        Line::from(vec![
+            Span::styled(" ● ", Style::new().fg(Color::Rgb(240, 190, 90)).bg(Color::Rgb(24, 28, 40))),
+            Span::styled(app.status.clone(), Style::new().fg(Color::Rgb(240, 220, 180)).bg(Color::Rgb(24, 28, 40))),
+        ])
+    } else if let Some(a) = app.agents.get(app.selected) {
+        let (dot, dc) = match a.state.status {
+            Status::Working => ("●", Color::Rgb(120, 230, 140)),
+            Status::Idle => ("○", Color::Rgb(235, 205, 110)),
+            Status::Unknown => ("·", Color::Rgb(150, 150, 160)),
+        };
+        let tag = if a.openable() { "tmux" } else { "external" };
+        let folders = a
+            .state
+            .work_dirs
+            .iter()
+            .filter(|d| **d != a.cwd)
+            .filter(|d| {
+                d.file_name()
+                    .map(|n| !crate::agent::is_noise_folder(&n.to_string_lossy()))
+                    .unwrap_or(true)
+            })
+            .count();
+        let bg = Color::Rgb(24, 28, 40);
+        Line::from(vec![
+            Span::styled(format!(" {}/{} ", app.selected + 1, app.agents.len()), Style::new().fg(Color::Rgb(120, 150, 190)).bg(bg)),
+            Span::styled("▸ ", Style::new().fg(Color::Rgb(120, 200, 255)).bg(bg)),
+            Span::styled(a.label(), Style::new().fg(Color::White).bg(bg).bold()),
+            Span::styled("  ", Style::new().bg(bg)),
+            Span::styled(format!("{dot} "), Style::new().fg(dc).bg(bg)),
+            Span::styled(format!("⚡{}%  ", a.load()), Style::new().fg(Color::Rgb(180, 170, 150)).bg(bg)),
+            Span::styled(format!("[{tag}] "), Style::new().fg(if a.openable() { Color::Rgb(110, 180, 240) } else { Color::DarkGray }).bg(bg)),
+            Span::styled(format!("· {folders} dir{}", if folders == 1 { "" } else { "s" }), Style::new().fg(Color::DarkGray).bg(bg)),
+        ])
+    } else {
+        Line::from(Span::styled(" no agents", bar_bg))
+    };
+
+    let keys = " n new · 1-9 jump · ←↑↓→ move · ↵ open · d kill · q quit ";
+    let right = Line::from(Span::styled(keys, Style::new().fg(Color::Rgb(110, 120, 140)).bg(Color::Rgb(24, 28, 40))));
+
+    f.render_widget(Paragraph::new(left), area);
+    f.render_widget(Paragraph::new(right).alignment(Alignment::Right), area);
 }
 
 fn render_empty(f: &mut Frame, area: Rect) {
