@@ -142,6 +142,21 @@ pub fn parse(path: &Path, root: &Path) -> Result<AgentState> {
                     if let Some(u) = v.get("uuid").and_then(|u| u.as_str()) {
                         state.final_marker = Some(u.to_string());
                     }
+                    // Did the agent declare it's fully done? Check the full
+                    // answer text (not the length-clipped phrase).
+                    let full: String = v
+                        .get("message")
+                        .and_then(|m| m.get("content"))
+                        .and_then(|c| c.as_array())
+                        .map(|blocks| {
+                            blocks
+                                .iter()
+                                .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                                .collect::<Vec<_>>()
+                                .join(" ")
+                        })
+                        .unwrap_or_default();
+                    state.final_says_done = full.contains("FINISHED COMPLETELY");
                 }
                 let content = v
                     .get("message")
