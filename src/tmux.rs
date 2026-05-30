@@ -83,6 +83,11 @@ fn configure() {
         // Alt-o) and Fn keys are awkward on macOS — a no-prefix binding would
         // swallow whatever it's bound to before Claude sees it.
         &["bind-key", "-n", "C-q", "detach-client"],
+        // Keep a window after its process (claude) exits instead of silently
+        // destroying it — otherwise a finished/crashed agent's terminal just
+        // vanishes. The dead pane stays with its final output + exit status;
+        // close it with `d`.
+        &["set-option", "-g", "remain-on-exit", "on"],
         // Drop bindings from earlier versions so they stop shadowing Claude.
         &["unbind-key", "-n", "M-o"],
         &["unbind-key", "-n", "F12"],
