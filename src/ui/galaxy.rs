@@ -1,6 +1,6 @@
 //! Node-field rendering: each agent is a compact rounded card, spread across
 //! the canvas, with solid line-drawn arrows fanning out to the folders it has
-//! touched. External claudes (not in enxame's tmux) are dimmed.
+//! touched. External claudes (not in phasor's tmux) are dimmed.
 
 use super::HitBox;
 use crate::agent::{Agent, Status};
