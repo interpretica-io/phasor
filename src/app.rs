@@ -16,6 +16,8 @@ pub enum Mode {
     Normal,
     /// Entering a working directory for a new agent.
     NewAgent { input: String },
+    /// Entering an instruction to auto-send when the agent next finishes.
+    Instruct { input: String },
 }
 
 pub struct App {
@@ -78,6 +80,28 @@ impl App {
                 KeyCode::Char(c) => input.push(c),
                 _ => {}
             },
+            Mode::Instruct { input } => match key.code {
+                KeyCode::Esc => self.mode = Mode::Normal,
+                KeyCode::Enter => {
+                    let text = input.trim().to_string();
+                    self.mode = Mode::Normal;
+                    if !text.is_empty() {
+                        if let Some(wid) = self
+                            .agents
+                            .get(self.selected)
+                            .and_then(|a| a.window_id.clone())
+                        {
+                            let _ = tmux::set_window_pending(&wid, &text);
+                            self.note("instruction queued — auto-sends when the agent finishes");
+                        }
+                    }
+                }
+                KeyCode::Backspace => {
+                    input.pop();
+                }
+                KeyCode::Char(c) => input.push(c),
+                _ => {}
+            },
         }
     }
 
@@ -107,6 +131,12 @@ impl App {
             }
             KeyCode::Enter => self.open_selected(),
             KeyCode::Char('d') => self.kill_selected(),
+            // Queue an instruction to auto-send when this agent finishes.
+            KeyCode::Char('i') => match self.agents.get(self.selected) {
+                Some(a) if a.openable() => self.mode = Mode::Instruct { input: String::new() },
+                Some(_) => self.note("can't instruct an external claude (not in enxame's tmux)"),
+                None => {}
+            },
             _ => {}
         }
     }
