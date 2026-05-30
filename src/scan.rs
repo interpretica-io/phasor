@@ -6,7 +6,7 @@
 //! the process/window set. `snapshot` is a one-off synchronous scan.
 
 use crate::agent::{Agent, Status};
-use crate::{discover, transcript, tmux};
+use crate::{config, discover, transcript, tmux};
 use notify::{RecursiveMode, Watcher};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsString;
@@ -102,6 +102,20 @@ fn discover_nodes() -> Vec<Node> {
     nodes
 }
 
+/// Tag an agent with its project (name + color) from the config, by cwd prefix.
+fn apply_project(a: &mut Agent, projects: &[config::Project]) {
+    match config::resolve(projects, &a.cwd) {
+        Some(p) => {
+            a.project_name = Some(p.name.clone());
+            a.project_color = (!p.color.is_empty()).then(|| p.color.clone());
+        }
+        None => {
+            a.project_name = None;
+            a.project_color = None;
+        }
+    }
+}
+
 fn node_to_agent(n: Node) -> Agent {
     let mut a = Agent::new(n.id, n.cwd);
     a.pids = n.pids;
@@ -176,11 +190,13 @@ fn try_autosend(agent: &mut Agent) {
 
 /// One-off full scan, used to populate the first frame.
 pub fn snapshot() -> Vec<Agent> {
+    let projects = config::load();
     discover_nodes()
         .into_iter()
         .map(|n| {
             let mut a = node_to_agent(n);
             reparse(&mut a);
+            apply_project(&mut a, &projects);
             a
         })
         .collect()
@@ -257,6 +273,7 @@ fn run_scanner(tx: Sender<Vec<Agent>>) {
         let mut changed = false;
 
         if force_discovery || last_discovery.elapsed() >= DISCOVERY_INTERVAL {
+            let projects = config::load(); // reloaded each tick so edits apply
             let nodes = discover_nodes();
             let ids: HashSet<String> = nodes.iter().map(|n| n.id.clone()).collect();
             agents.retain(|id, _| ids.contains(id));
@@ -278,6 +295,7 @@ fn run_scanner(tx: Sender<Vec<Agent>>) {
                 entry.window_id = n.window_id;
                 entry.session_id = n.session_id;
                 entry.pending = n.pending;
+                apply_project(entry, &projects);
                 if let Some(t) = &entry.transcript {
                     entry.state.status = transcript::status_from_mtime(t);
                 }
