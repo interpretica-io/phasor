@@ -37,8 +37,8 @@ fn main() -> Result<()> {
     match std::env::args().nth(1).as_deref() {
         Some("doctor") => return doctor(),
         Some("render") => return render_once(),
-        Some("--exec") => return exec_window(),
-        Some("--start") => return start_window(),
+        Some("exec") => return exec_window(),
+        Some("start") => return start_window(),
         Some("serve") => {
             let port = std::env::args()
                 .nth(2)
@@ -55,8 +55,8 @@ fn main() -> Result<()> {
                 "enxame: unknown command '{other}'\n\
                  usage:\n  enxame                 dashboard (TUI)\n  \
                  enxame serve [port]    web dashboard (default 7878)\n  \
-                 enxame --start CMD…    run CMD in a new window and open it\n  \
-                 enxame --exec  CMD…    run CMD in a new window (background)\n  \
+                 enxame start CMD…      run CMD in a new window and open it\n  \
+                 enxame exec  CMD…      run CMD in a new window (background)\n  \
                  enxame doctor [cwd]    diagnostics"
             );
             std::process::exit(2);
