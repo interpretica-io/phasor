@@ -30,8 +30,8 @@ pub struct App {
     pub should_quit: bool,
     /// When set, the main loop should suspend the TUI and attach this window.
     pub attach_to: Option<String>,
-    /// Selection is tracked by cwd so it stays put as the list is rebuilt.
-    selected_cwd: Option<PathBuf>,
+    /// Selection is tracked by node id so it stays put as the list is rebuilt.
+    selected_id: Option<String>,
     /// Fresh agent snapshots from the background scanner.
     rx: Receiver<Vec<Agent>>,
 }
@@ -48,7 +48,7 @@ impl App {
             status_at: Instant::now(),
             should_quit: false,
             attach_to: None,
-            selected_cwd: None,
+            selected_id: None,
             rx,
         }
     }
@@ -128,14 +128,14 @@ impl App {
         }
         let next = (self.selected as isize + delta).clamp(0, n as isize - 1) as usize;
         self.selected = next;
-        self.selected_cwd = self.agents.get(next).map(|a| a.cwd.clone());
+        self.selected_id = self.agents.get(next).map(|a| a.id.clone());
     }
 
     /// Select an agent by index (used by mouse clicks).
     pub fn select(&mut self, idx: usize) {
         if idx < self.agents.len() {
             self.selected = idx;
-            self.selected_cwd = Some(self.agents[idx].cwd.clone());
+            self.selected_id = Some(self.agents[idx].id.clone());
         }
     }
 
@@ -181,8 +181,14 @@ impl App {
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "agent".into());
-        tmux::new_window(&name, &canon.to_string_lossy(), "claude")?;
-        self.selected_cwd = Some(canon);
+        // Give claude a known session id so we can resolve this window's exact
+        // transcript (not just the newest in the folder).
+        let sid = tmux::new_session_id();
+        let cmd = format!("claude --session-id {sid}");
+        let win = tmux::new_window(&name, &canon.to_string_lossy(), &cmd)?;
+        let _ = tmux::set_window_session(&win.id, &sid);
+        // Select the new window once discovery picks it up (node id == win id).
+        self.selected_id = Some(win.id);
         self.note("agent started — claude launching");
         Ok(())
     }
@@ -199,10 +205,10 @@ impl App {
         }
     }
 
-    /// Keep the selection pinned to the same cwd across rebuilds.
+    /// Keep the selection pinned to the same node across rebuilds.
     fn reconcile_selection(&mut self) {
-        if let Some(cwd) = &self.selected_cwd {
-            if let Some(idx) = self.agents.iter().position(|a| &a.cwd == cwd) {
+        if let Some(id) = &self.selected_id {
+            if let Some(idx) = self.agents.iter().position(|a| &a.id == id) {
                 self.selected = idx;
                 return;
             }
@@ -210,7 +216,7 @@ impl App {
         if self.selected >= self.agents.len() {
             self.selected = self.agents.len().saturating_sub(1);
         }
-        self.selected_cwd = self.agents.get(self.selected).map(|a| a.cwd.clone());
+        self.selected_id = self.agents.get(self.selected).map(|a| a.id.clone());
     }
 }
 
