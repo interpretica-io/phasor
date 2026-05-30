@@ -78,8 +78,14 @@ pub fn ensure_session() -> Result<()> {
 /// app.
 fn configure() {
     let cmds: &[&[&str]] = &[
-        // Alt-o detaches (returns to enxame) without needing the tmux prefix.
-        &["bind-key", "-n", "M-o", "detach-client"],
+        // Ctrl-Q detaches (collapses back to the dashboard) without the tmux
+        // prefix. We avoid Alt/Fn keys: Claude Code uses some Alt keys (e.g.
+        // Alt-o) and Fn keys are awkward on macOS — a no-prefix binding would
+        // swallow whatever it's bound to before Claude sees it.
+        &["bind-key", "-n", "C-q", "detach-client"],
+        // Drop bindings from earlier versions so they stop shadowing Claude.
+        &["unbind-key", "-n", "M-o"],
+        &["unbind-key", "-n", "F12"],
         &["set-option", "-g", "status", "on"],
         &["set-option", "-g", "status-style", "bg=colour237,fg=colour250"],
         &["set-option", "-g", "status-left", "#[bold] ◍ enxame #[default]"],
@@ -87,7 +93,7 @@ fn configure() {
             "set-option",
             "-g",
             "status-right",
-            " ⟵  Alt-o  (or prefix d)  back to dashboard ",
+            " ⟵  Ctrl-Q  (or prefix d)  back to dashboard ",
         ],
         &["set-option", "-g", "status-right-length", "60"],
     ];
@@ -99,11 +105,15 @@ fn configure() {
 /// Create a new window running `cmd` in `cwd`, returning its stable id.
 pub fn new_window(name: &str, cwd: &str, cmd: &str) -> Result<Window> {
     ensure_session()?;
+    // Target the session with a trailing colon (`enxame:`) so tmux appends at
+    // the next free index. A bare `enxame` is parsed as a target *window* and
+    // would collide with a window that happens to be named `enxame`.
+    let target = format!("{SESSION}:");
     // -P prints info about the new window; -F gives us id + name.
     let out = run(&[
         "new-window",
         "-t",
-        SESSION,
+        &target,
         "-c",
         cwd,
         "-n",
