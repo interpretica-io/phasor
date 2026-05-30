@@ -66,6 +66,19 @@ shown in the tmux status bar at the bottom while you're attached. Agents
 survive across dashboard restarts — they live in a dedicated tmux server
 (`tmux -L enxame`).
 
+### Web dashboard
+
+```sh
+enxame serve            # http://127.0.0.1:7878
+enxame serve 9000       # custom port
+```
+
+A parallel **graphical dashboard in the browser**, backed by the exact same
+discovery as the TUI (shared `scan` module: process discovery + transcript file
+watchers). It serves a self-contained dark UI that auto-refreshes every 1.5 s
+and a JSON API at `/api/agents`. Read-only today (mirrors the same cards:
+number, status, progress, last phrase, folder chips, tmux/external badge).
+
 ### Spawning agents from outside
 
 ```sh
