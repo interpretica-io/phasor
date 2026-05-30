@@ -211,9 +211,10 @@ fn draw_card(
     let info_x = cx + digits.len() as i32 * 4 + 1;
     let info_w = (in_card.right() as i32 - info_x).max(0) as usize;
 
-    // row 0: status dot + name
+    // row 0: status dot + name (+ ↻ when a repeating auto-instruction is set)
     put_str(buf, in_card, info_x, cy, dot, Style::new().fg(dot_color).add_modifier(Modifier::BOLD));
-    let name = clip(&agent.label(), info_w.saturating_sub(2));
+    let pending = agent.pending.is_some();
+    let name = clip(&agent.label(), info_w.saturating_sub(if pending { 4 } else { 2 }));
     // The session title is always shown in full colour, even for external
     // agents — only the rest of an external card is dimmed.
     let name_style = if selected {
@@ -222,6 +223,10 @@ fn draw_card(
         Style::new().fg(Color::Rgb(205, 210, 225)).add_modifier(Modifier::BOLD)
     };
     put_str(buf, in_card, info_x + 2, cy, &name, name_style);
+    if pending {
+        put_str(buf, in_card, in_card.right() as i32 - 1, cy, "↻",
+            Style::new().fg(Color::Rgb(235, 205, 110)).add_modifier(Modifier::BOLD));
+    }
 
     // row 1: progress bar (always present) + activity load %, right-aligned
     if in_card.height >= 2 {
