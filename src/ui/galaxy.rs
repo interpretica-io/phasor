@@ -162,9 +162,15 @@ fn draw_card(
         Status::Unknown => ("·", Color::Rgb(150, 150, 160)),
     };
 
-    // Border + corner tag make the tmux/external distinction obvious.
+    // A configured project tints the card and labels it (see config.rs).
+    let project_color = agent.project_color.as_deref().and_then(parse_hex);
+
+    // Border + corner tag make the tmux/external distinction obvious; a project
+    // color, when set, takes over the (unselected) border so a group reads as one.
     let border_style = if selected {
         Style::new().fg(C_BORDER_SEL).add_modifier(Modifier::BOLD)
+    } else if let Some(pc) = project_color {
+        Style::new().fg(pc)
     } else if external {
         Style::new().fg(C_BORDER_EXT)
     } else {
@@ -175,11 +181,20 @@ fn draw_card(
     } else {
         Span::styled(" ⧉ tmux ", Style::new().fg(C_TAG_TMUX).add_modifier(Modifier::BOLD))
     };
-    let block = Block::default()
+    let mut block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(border_style)
         .title(Line::from(tag).right_aligned());
+    // Left-aligned project chip in the project color.
+    if let Some(name) = &agent.project_name {
+        let pc = project_color.unwrap_or(C_BORDER_TMUX);
+        let chip = format!(" ◆ {} ", clip(name, 18));
+        block = block.title(Line::from(Span::styled(
+            chip,
+            Style::new().fg(pc).add_modifier(Modifier::BOLD),
+        )));
+    }
     let in_card = block.inner(card);
     block.render(card, buf);
 
@@ -311,6 +326,18 @@ fn put_str(buf: &mut Buffer, region: Rect, x: i32, y: i32, s: &str, style: Style
         return;
     }
     buf.set_string(start as u16, y as u16, shown, style);
+}
+
+/// Parse a `#rrggbb` (or `rrggbb`) hex color into a ratatui RGB color.
+fn parse_hex(s: &str) -> Option<Color> {
+    let h = s.trim().trim_start_matches('#');
+    if h.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&h[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&h[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&h[4..6], 16).ok()?;
+    Some(Color::Rgb(r, g, b))
 }
 
 fn clip(s: &str, max: usize) -> String {
