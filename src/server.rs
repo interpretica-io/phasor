@@ -44,15 +44,22 @@ struct Payload {
 }
 
 fn to_dto(a: &Agent) -> AgentDto {
+    // Full (absolute) paths — clustering/overlap must compare canonical paths,
+    // not basenames (two unrelated `src` dirs are not the same folder). The UI
+    // derives the short label from the basename for display.
     let mut seen = HashSet::new();
     let folders = a
         .state
         .work_dirs
         .iter()
         .filter(|d| **d != a.cwd)
-        .filter_map(|d| d.file_name().map(|s| s.to_string_lossy().into_owned()))
-        .filter(|n| !is_noise_folder(n))
-        .filter(|n| seen.insert(n.clone()))
+        .filter(|d| {
+            d.file_name()
+                .map(|n| !is_noise_folder(&n.to_string_lossy()))
+                .unwrap_or(true)
+        })
+        .map(|d| d.to_string_lossy().into_owned())
+        .filter(|p| seen.insert(p.clone()))
         .collect();
     AgentDto {
         label: a.label(),
