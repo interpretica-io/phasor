@@ -1,14 +1,25 @@
 //! Application state and input handling (UI-framework agnostic).
+//!
+//! Discovery (ps + lsof + transcript parsing) is comparatively slow, so it runs
+//! on a background thread and streams fresh agent snapshots to the UI over a
+//! channel. The main loop never blocks on it — keystrokes stay responsive.
 
 use crate::agent::Agent;
 use crate::{discover, transcript, tmux};
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use std::collections::BTreeMap;
+use notify::{RecursiveMode, Watcher};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ffi::OsString;
 use std::path::PathBuf;
-use std::time::{Duration, SystemTime};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime};
 
-const POLL_INTERVAL: Duration = Duration::from_millis(1500);
+/// How often the process/window set is re-checked (cheap: ps + lsof + tmux, no
+/// transcript reads). Transcript content is refreshed by file-watch events, not
+/// on this tick.
+const DISCOVERY_INTERVAL: Duration = Duration::from_secs(3);
 
 /// Interaction mode of the dashboard.
 pub enum Mode {
@@ -18,7 +29,7 @@ pub enum Mode {
 }
 
 pub struct App {
-    /// Agents sorted deterministically by cwd, rebuilt each poll.
+    /// Agents sorted deterministically by cwd, refreshed from the scanner.
     pub agents: Vec<Agent>,
     pub selected: usize,
     pub mode: Mode,
@@ -28,23 +39,29 @@ pub struct App {
     pub attach_to: Option<String>,
     /// Selection is tracked by cwd so it stays put as the list is rebuilt.
     selected_cwd: Option<PathBuf>,
-    last_poll: SystemTime,
+    /// Fresh agent snapshots from the background scanner.
+    rx: Receiver<Vec<Agent>>,
 }
 
 impl App {
     pub fn new() -> Self {
-        let mut app = Self {
-            agents: Vec::new(),
+        // One synchronous scan so the first frame isn't empty, then a worker
+        // thread takes over: it watches the transcript files and only re-reads
+        // the ones that actually change.
+        let agents = initial_scan();
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || run_scanner(tx));
+
+        Self {
+            agents,
             selected: 0,
             mode: Mode::Normal,
-            status: "n: new · 1-9: jump · ↑/↓: select · Enter: open · d: kill · q: quit".into(),
+            status: "n: new · 1-9: jump · ←↑↓→/hjkl: move · Enter: open · d: kill · q: quit".into(),
             should_quit: false,
             attach_to: None,
             selected_cwd: None,
-            last_poll: SystemTime::UNIX_EPOCH,
-        };
-        app.poll(); // populate immediately so the first frame isn't empty
-        app
+            rx,
+        }
     }
 
     /// Handle a key event.
@@ -82,8 +99,11 @@ impl App {
                     .unwrap_or_default();
                 self.mode = Mode::NewAgent { input: prefill };
             }
-            KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
-            KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
+            // Grid-aware navigation: up/down jump a row, left/right a column.
+            KeyCode::Up | KeyCode::Char('k') => self.move_selection(-(self.grid_cols() as isize)),
+            KeyCode::Down | KeyCode::Char('j') => self.move_selection(self.grid_cols() as isize),
+            KeyCode::Left | KeyCode::Char('h') => self.move_selection(-1),
+            KeyCode::Right | KeyCode::Char('l') => self.move_selection(1),
             // Quick-jump: 1-9 select agents 1..9, 0 selects the 10th. Selects
             // only — never opens.
             KeyCode::Char(c @ '0'..='9') => {
@@ -94,6 +114,16 @@ impl App {
             KeyCode::Enter => self.open_selected(),
             KeyCode::Char('d') => self.kill_selected(),
             _ => {}
+        }
+    }
+
+    /// Columns in the display grid — must match the UI's layout.
+    fn grid_cols(&self) -> usize {
+        let n = self.agents.len();
+        if n == 0 {
+            1
+        } else {
+            (n as f32).sqrt().ceil() as usize
         }
     }
 
@@ -134,8 +164,10 @@ impl App {
             Some(a) if a.openable() => {
                 if let Some(id) = a.window_id.clone() {
                     let _ = tmux::kill_window(&id);
+                    // Optimistic local removal; the scanner will confirm.
+                    self.agents.remove(self.selected);
+                    self.reconcile_selection();
                     self.status = "agent window killed".into();
-                    self.poll();
                 }
             }
             Some(_) => {
@@ -145,7 +177,7 @@ impl App {
         }
     }
 
-    /// Create a tmux window and launch claude in it. Discovery picks it up.
+    /// Create a tmux window and launch claude in it. The scanner picks it up.
     fn spawn_agent(&mut self, raw_path: &str) -> Result<()> {
         let path = expand_path(raw_path);
         let canon = std::fs::canonicalize(&path)
@@ -160,58 +192,19 @@ impl App {
         tmux::new_window(&name, &canon.to_string_lossy(), "claude")?;
         self.selected_cwd = Some(canon);
         self.status = "agent started — claude launching".into();
-        self.poll();
         Ok(())
     }
 
-    /// Periodic refresh (rate-limited).
-    pub fn maybe_poll(&mut self) {
-        if self.last_poll.elapsed().unwrap_or(POLL_INTERVAL) < POLL_INTERVAL {
-            return;
+    /// Apply any agent snapshots the scanner has produced (non-blocking).
+    pub fn drain_updates(&mut self) {
+        let mut latest = None;
+        while let Ok(agents) = self.rx.try_recv() {
+            latest = Some(agents);
         }
-        self.poll();
-    }
-
-    /// Discover all running claudes + enxame tmux windows, rebuild the agent
-    /// list keyed by cwd, and refresh transcript-derived state.
-    fn poll(&mut self) {
-        self.last_poll = SystemTime::now();
-
-        // Carry over cached state (transcript path, parsed state) by cwd.
-        let mut prev: BTreeMap<PathBuf, Agent> =
-            self.agents.drain(..).map(|a| (a.cwd.clone(), a)).collect();
-
-        let discovered = discover::running_claudes();
-        let windows = tmux::list_windows_with_cwd().unwrap_or_default();
-
-        // Union of every cwd we know about: running claudes + enxame windows.
-        let mut cwds: BTreeMap<PathBuf, (Vec<u32>, Option<String>)> = BTreeMap::new();
-        for (cwd, pids) in discovered {
-            cwds.entry(cwd).or_default().0 = pids;
+        if let Some(agents) = latest {
+            self.agents = agents;
+            self.reconcile_selection();
         }
-        for (win, cwd) in windows {
-            cwds.entry(cwd).or_default().1 = Some(win.id);
-        }
-
-        let mut agents: Vec<Agent> = Vec::new();
-        for (cwd, (pids, window_id)) in cwds {
-            let mut agent = prev.remove(&cwd).unwrap_or_else(|| Agent::new(cwd.clone()));
-            agent.pids = pids;
-            agent.window_id = window_id;
-            if agent.transcript.is_none() {
-                agent.transcript = transcript::newest_session(&cwd, SystemTime::UNIX_EPOCH);
-            }
-            if let Some(t) = agent.transcript.clone() {
-                match transcript::parse(&t, &cwd) {
-                    Ok(state) => agent.state = state,
-                    Err(_) => {}
-                }
-            }
-            agents.push(agent);
-        }
-
-        self.agents = agents; // already sorted: BTreeMap iterates by cwd
-        self.reconcile_selection();
     }
 
     /// Keep the selection pinned to the same cwd across rebuilds.
@@ -226,6 +219,150 @@ impl App {
             self.selected = self.agents.len().saturating_sub(1);
         }
         self.selected_cwd = self.agents.get(self.selected).map(|a| a.cwd.clone());
+    }
+}
+
+/// The cwd -> (pids, tmux window id) map from a process/window discovery pass.
+fn discover_cwds() -> BTreeMap<PathBuf, (Vec<u32>, Option<String>)> {
+    let mut cwds: BTreeMap<PathBuf, (Vec<u32>, Option<String>)> = BTreeMap::new();
+    for (cwd, pids) in discover::running_claudes() {
+        cwds.entry(cwd).or_default().0 = pids;
+    }
+    for (win, cwd) in tmux::list_windows_with_cwd().unwrap_or_default() {
+        cwds.entry(cwd).or_default().1 = Some(win.id);
+    }
+    cwds
+}
+
+/// Locate and fully parse an agent's transcript (reads the file tail).
+fn reparse(agent: &mut Agent) {
+    agent.transcript = transcript::newest_session(&agent.cwd, SystemTime::UNIX_EPOCH);
+    if let Some(t) = agent.transcript.clone() {
+        if let Ok(state) = transcript::parse(&t, &agent.cwd) {
+            agent.state = state;
+        }
+    }
+}
+
+/// One-off full scan used to populate the very first frame.
+fn initial_scan() -> Vec<Agent> {
+    discover_cwds()
+        .into_iter()
+        .map(|(cwd, (pids, window_id))| {
+            let mut a = Agent::new(cwd);
+            a.pids = pids;
+            a.window_id = window_id;
+            reparse(&mut a);
+            a
+        })
+        .collect()
+}
+
+/// Background scanner: watches `~/.claude/projects` for transcript changes and
+/// re-parses only the affected file, plus a cheap periodic discovery tick for
+/// the process/window set. Streams full snapshots to the UI.
+fn run_scanner(tx: Sender<Vec<Agent>>) {
+    let projects = dirs::home_dir().map(|h| h.join(".claude/projects"));
+
+    // Set up the filesystem watcher (best effort).
+    let (fs_tx, fs_rx) = mpsc::channel();
+    let watcher = projects.as_ref().and_then(|p| {
+        let mut w = notify::recommended_watcher(move |res| {
+            let _ = fs_tx.send(res);
+        })
+        .ok()?;
+        w.watch(p, RecursiveMode::Recursive).ok()?;
+        Some(w)
+    });
+    let _watcher = watcher; // keep alive for the loop's lifetime
+
+    let mut agents: BTreeMap<PathBuf, Agent> = BTreeMap::new();
+    // Encoded project-dir name (the `-Users-...` folder) -> cwd, for mapping
+    // file events back to an agent without fragile path-prefix comparisons.
+    let mut dir_to_cwd: HashMap<OsString, PathBuf> = HashMap::new();
+    let mut last_discovery = Instant::now()
+        .checked_sub(DISCOVERY_INTERVAL)
+        .unwrap_or_else(Instant::now); // force an immediate discovery
+
+    loop {
+        // Block until a file event arrives or it's time for a discovery tick.
+        let first = fs_rx.recv_timeout(Duration::from_millis(500));
+        let mut dirty: HashSet<PathBuf> = HashSet::new();
+        let mut force_discovery = false;
+
+        let handle = |res: notify::Result<notify::Event>,
+                      dirty: &mut HashSet<PathBuf>,
+                      force: &mut bool| {
+            if let Ok(ev) = res {
+                for path in ev.paths {
+                    if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                        continue;
+                    }
+                    match path.parent().and_then(|p| p.file_name()).map(|n| n.to_os_string()) {
+                        Some(name) => match dir_to_cwd.get(&name) {
+                            Some(cwd) => {
+                                dirty.insert(cwd.clone());
+                            }
+                            None => *force = true, // unknown project — rediscover
+                        },
+                        None => {}
+                    }
+                }
+            }
+        };
+
+        match first {
+            Ok(res) => handle(res, &mut dirty, &mut force_discovery),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => {
+                // No watcher available — fall back to periodic discovery only.
+                thread::sleep(Duration::from_millis(500));
+            }
+        }
+        // Coalesce any further queued events into this batch.
+        while let Ok(res) = fs_rx.try_recv() {
+            handle(res, &mut dirty, &mut force_discovery);
+        }
+
+        let mut changed = false;
+
+        if force_discovery || last_discovery.elapsed() >= DISCOVERY_INTERVAL {
+            let cwds = discover_cwds();
+            agents.retain(|cwd, _| cwds.contains_key(cwd));
+            for (cwd, (pids, window_id)) in cwds {
+                let entry = agents.entry(cwd.clone()).or_insert_with(|| {
+                    let mut a = Agent::new(cwd.clone());
+                    reparse(&mut a);
+                    a
+                });
+                entry.pids = pids;
+                entry.window_id = window_id;
+                // Refresh working/idle cheaply from mtime (no content read).
+                if let Some(t) = &entry.transcript {
+                    entry.state.status = transcript::status_from_mtime(t);
+                }
+            }
+            dir_to_cwd = agents
+                .keys()
+                .filter_map(|cwd| {
+                    transcript::project_dir(cwd)
+                        .and_then(|d| d.file_name().map(|n| (n.to_os_string(), cwd.clone())))
+                })
+                .collect();
+            last_discovery = Instant::now();
+            changed = true;
+        }
+
+        for cwd in dirty {
+            if let Some(agent) = agents.get_mut(&cwd) {
+                reparse(agent);
+                changed = true;
+            }
+        }
+
+        if changed && tx.send(agents.values().cloned().collect()).is_err() {
+            break; // UI gone
+        }
     }
 }
 
