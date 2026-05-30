@@ -34,12 +34,21 @@ fn main() -> Result<()> {
     match std::env::args().nth(1).as_deref() {
         Some("doctor") => return doctor(),
         Some("render") => return render_once(),
+        Some("--exec") => return exec_window(),
+        Some("--start") => return start_window(),
         _ => {}
     }
+    run_dashboard(None)
+}
+
+/// Launch the dashboard TUI. If `initial_attach` is set, the dashboard opens
+/// straight into that tmux window (used by `--start`); detaching collapses
+/// back into the dashboard.
+fn run_dashboard(initial_attach: Option<String>) -> Result<()> {
     tmux::ensure_session().context("failed to create enxame tmux session")?;
 
     let mut terminal = setup_terminal()?;
-    let res = run(&mut terminal);
+    let res = run(&mut terminal, initial_attach);
     restore_terminal(&mut terminal)?;
     res
 }
@@ -62,41 +71,94 @@ fn restore_terminal(terminal: &mut Term) -> Result<()> {
     Ok(())
 }
 
-fn run(terminal: &mut Term) -> Result<()> {
+fn run(terminal: &mut Term, initial_attach: Option<String>) -> Result<()> {
     let mut app = App::new();
+    app.attach_to = initial_attach;
     let mut hits: Vec<HitBox> = Vec::new();
 
     while !app.should_quit {
-        app.maybe_poll();
-        terminal.draw(|f| {
-            hits = ui::render(f, &app);
-        })?;
-
-        if event::poll(Duration::from_millis(200))? {
-            match event::read()? {
-                Event::Key(k) if k.kind == KeyEventKind::Press => app.on_key(k),
-                Event::Mouse(m) => {
-                    if let MouseEventKind::Down(MouseButton::Left) = m.kind {
-                        if let Some(h) = hits.iter().find(|h| h.contains(m.column, m.row)) {
-                            app.select(h.idx);
-                            app.open_selected();
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
         // A requested attach suspends the TUI and hands the screen to tmux.
-        // A failure here must NOT kill the dashboard — surface it in the
-        // status line and carry on.
+        // Handled first so `--start` opens straight into the window with no
+        // dashboard flash; detaching (Alt-o / prefix+d) drops back here.
+        // A failure must NOT kill the dashboard — show it in the status line.
         if let Some(window_id) = app.attach_to.take() {
             if let Err(e) = attach(terminal, &window_id) {
                 app.status = format!("could not open terminal: {e}");
             }
+            continue;
+        }
+
+        app.drain_updates();
+        terminal.draw(|f| {
+            hits = ui::render(f, &app);
+        })?;
+
+        // Wait briefly for input, then drain every queued event this iteration
+        // so bursts of keystrokes are all handled (no dropped/laggy keys).
+        if event::poll(Duration::from_millis(100))? {
+            loop {
+                match event::read()? {
+                    Event::Key(k) if k.kind == KeyEventKind::Press => app.on_key(k),
+                    Event::Mouse(m) => {
+                        if let MouseEventKind::Down(MouseButton::Left) = m.kind {
+                            if let Some(h) = hits.iter().find(|h| h.contains(m.column, m.row)) {
+                                app.select(h.idx);
+                                app.open_selected();
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                if app.should_quit || app.attach_to.is_some() || !event::poll(Duration::ZERO)? {
+                    break;
+                }
+            }
         }
     }
     Ok(())
+}
+
+/// Start the command (everything after the flag) in a new tmux window of the
+/// enxame session, in the current directory. Returns the window plus a
+/// human-readable command string.
+fn spawn_exec_window(flag: &str) -> Result<(tmux::Window, String)> {
+    let cmd: Vec<String> = std::env::args().skip(2).collect();
+    if cmd.is_empty() {
+        anyhow::bail!("usage: enxame {flag} <command> [args...]");
+    }
+    let cwd = std::env::current_dir().context("cannot determine current directory")?;
+    let name = cwd
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "agent".into());
+    // tmux runs the window command through a shell, so shell-quote each argv
+    // element to preserve boundaries (e.g. `sh -c "a; b"`).
+    let joined = cmd.iter().map(|a| shell_quote(a)).collect::<Vec<_>>().join(" ");
+    let win = tmux::new_window(&name, &cwd.to_string_lossy(), &joined)
+        .context("failed to create tmux window")?;
+    Ok((win, cmd.join(" ")))
+}
+
+/// `enxame --exec <command...>`: spawn the command in a new enxame tmux window,
+/// then exit. Lets external scripts seed enxame-managed agents (they show up as
+/// openable in the dashboard).
+fn exec_window() -> Result<()> {
+    let (win, shown) = spawn_exec_window("--exec")?;
+    println!("enxame: launched [{}] in tmux window {} ({})", shown, win.id, win.name);
+    Ok(())
+}
+
+/// `enxame --start <command...>`: like `--exec`, but launches the dashboard
+/// opened straight into the new window. Detaching (Alt-o / prefix+d) collapses
+/// back into the dashboard, where the agent is a card you can re-open (Enter).
+fn start_window() -> Result<()> {
+    let (win, _shown) = spawn_exec_window("--start")?;
+    run_dashboard(Some(win.id))
+}
+
+/// Wrap an argument in single quotes for safe shell execution.
+fn shell_quote(arg: &str) -> String {
+    format!("'{}'", arg.replace('\'', "'\\''"))
 }
 
 /// Render a single dashboard frame to an off-screen buffer and print it as
