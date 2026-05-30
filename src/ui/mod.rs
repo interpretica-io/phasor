@@ -3,7 +3,7 @@
 //! Agents are drawn as a free-form "galaxy" field: each project is a star
 //! (the core) placed somewhere on the canvas, with the directories it touches
 //! orbiting around it as satellites connected by faint spokes. External
-//! claudes (not in enxame's tmux) are dimmed.
+//! claudes (not in phasor's tmux) are dimmed.
 
 mod galaxy;
 
@@ -67,7 +67,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
     let external = app.agents.iter().filter(|a| !a.openable()).count();
     let openable = app.agents.len() - external;
     let title = Line::from(vec![
-        Span::styled("◍ enxame", Style::new().fg(Color::Cyan).bold()),
+        Span::styled("◍ phasor", Style::new().fg(Color::Cyan).bold()),
         Span::raw("  "),
         Span::styled(
             format!("{openable} in tmux · {external} external"),
