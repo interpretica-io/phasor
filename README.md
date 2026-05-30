@@ -88,7 +88,10 @@ display: a live **force-directed graph** (D3.js) — every agent is a glowing
 node whose size grows with its activity load, colour shows status (green
 working / amber idle / grey external), with a progress ring and a breathing
 pulse while working; the folders it touches float around it as linked satellite
-nodes. Drag to rearrange, scroll to zoom, hover for details, and click a
+nodes. Agents that **share working folders** are pulled into clusters and linked by
+thin lines (brighter/thicker the more folders they share), each cluster tinted
+its own colour — so you can see at a glance who's working on overlapping code.
+Drag to rearrange, scroll to zoom, hover for details, and click a
 `⧉ tmux` node to open its live terminal. Finishing a task makes the node burst.
 A slim header shows live working/idle/external counters. Adaptive light/dark.
 Auto-refreshes every 1.5 s; JSON API at `/api/agents`.
