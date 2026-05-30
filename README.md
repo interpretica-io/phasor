@@ -12,27 +12,27 @@ elsewhere (a plain iTerm tab, etc.) are still discovered and monitored, but
 shown **dimmed/grey** and marked `[external]` — they aren't in tmux, so they
 can't be opened, only watched.
 
-Agents are drawn as a **galaxy field**: each project is a star, and the folders
-it has touched orbit it as a vertical column hanging off a line from the core.
-Stars are laid out freely across the screen and never overlap.
+Each agent is a compact rounded card, spread across the screen, with solid
+line-drawn arrows fanning out to the folders it has touched (names only).
 
 ```
 ◍ enxame  1 in tmux · 6 external
 
- ★ Analyze visao project overview      ✦ Full disassembly of Nethermind
-   working  ▓▓▓▓░░ 5/8                   idle
-   Build and test:…                      Готово — я разобрал hot-функции…
-  │                                     │
-  ├─ Visitors                           ├─ memory
-  ├─ Parsing                            ╰─ bflat
-  ╰─ VirtualMachine
-
-n: new agent · ↑/↓: select · Enter: open · d: kill · q: quit
+ ╭────────────────────────────────────╮
+ │┏━┓  ● Analyze visao project overview│
+ │┗━┓  ▰▰▰▰▰▱ 5/8                       │
+ │┗━┛  Build and test:…                │
+ ╰───┬────────────────────────────────╯
+     ├──▶ Visitors
+     ├──▶ Parsing
+     ╰──▶ VirtualMachine
 ```
 
-`★`/`☆` = openable agent in enxame's tmux (working / idle); `✦` (grey) = an
-external claude you can only monitor. Only the beginning of the last phrase is
-shown, and folders are listed by name, not full path.
+The big seven-segment number on the left is the **quick-jump key** (press it to
+select). `●` (green) = openable agent working in enxame's tmux, `○` (amber) =
+idle; an external claude you can only monitor is dimmed grey. Each card has a
+progress bar (filled from the agent's todo list, empty when unknown). Arrows
+point to folder **names**, never full paths. The selected card is highlighted.
 
 ## Requirements
 
@@ -53,18 +53,44 @@ cargo build --release
 |------------|-----------------------------------------------------|
 | `n`        | new agent — prompts for a working directory         |
 | `1`-`9`,`0`| jump to (select) that numbered agent — does not open |
-| `↑/↓` `j/k`| move selection                                      |
+| `←↑↓→` / `hjkl` | move selection around the grid                  |
 | `Enter`    | open the selected agent's terminal (tmux attach)    |
 | click      | select **and** open that agent                      |
 | `d`        | kill the selected agent's window                    |
 | `q`        | quit the dashboard (agents keep running in tmux)    |
 
-Inside an agent's terminal, press **`Alt-o`** to jump back to the dashboard
+Inside an agent's terminal, press **`Ctrl-Q`** to jump back to the dashboard
 (enxame binds this on its own tmux server, so no prefix is needed). The
 classic tmux **prefix + d** (default `Ctrl-b` `d`) also works. A reminder is
 shown in the tmux status bar at the bottom while you're attached. Agents
 survive across dashboard restarts — they live in a dedicated tmux server
 (`tmux -L enxame`).
+
+### Spawning agents from outside
+
+```sh
+cd /path/to/project
+enxame --exec claude --dangerously-skip-permissions
+```
+
+Everything after `--exec` is run as a command in a **new tmux window** of the
+enxame session, in the current directory, and then the CLI exits. The window
+shows up in the dashboard as an openable `⧉ tmux` agent. Use it from scripts or
+other tools to seed enxame-managed terminals. Arguments are preserved, so
+compound commands work too: `enxame --exec bash -lc 'cd sub && claude'`.
+
+`--start` launches the **dashboard opened straight into the new window**, so
+you watch the command immediately:
+
+```sh
+cd /path/to/project
+enxame --start claude
+```
+
+Press **`Ctrl-Q`** (or tmux prefix + d) to **collapse** the terminal — you drop
+into the enxame dashboard, where the command is now a card. Select it and press
+`Enter` (or click) to re-open ("maximize") it. `q` quits the dashboard; the
+command keeps running in the enxame session.
 
 ### Diagnostics
 
