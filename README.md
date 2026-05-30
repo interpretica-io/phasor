@@ -88,6 +88,10 @@ watchers). It serves a self-contained dark UI that auto-refreshes every 1.5 s
 and a JSON API at `/api/agents`. Each agent shows its number, status, progress,
 last phrase, and an arrow tree of touched folders (`├──▶`), mirroring the TUI.
 
+**Adaptive theme.** The page follows your OS light/dark preference by default;
+the header button cycles auto → light → dark and remembers your choice. The
+in-browser terminal recolors to match.
+
 **Live terminals in the browser.** Click an openable `⧉ tmux` agent and its
 terminal opens right in the page via [xterm.js](https://xtermjs.org) over a
 WebSocket bridged to a PTY running `tmux attach`. Type, resize, the lot. Close
