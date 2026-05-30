@@ -9,6 +9,7 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
+use std::time::Instant;
 
 /// Interaction mode of the dashboard.
 pub enum Mode {
@@ -22,7 +23,10 @@ pub struct App {
     pub agents: Vec<Agent>,
     pub selected: usize,
     pub mode: Mode,
+    /// Transient status message (shown briefly, then the bar reverts to the
+    /// selected-agent context). Set via [`App::note`].
     pub status: String,
+    pub status_at: Instant,
     pub should_quit: bool,
     /// When set, the main loop should suspend the TUI and attach this window.
     pub attach_to: Option<String>,
@@ -40,12 +44,19 @@ impl App {
             agents,
             selected: 0,
             mode: Mode::Normal,
-            status: "n: new · 1-9: jump · ←↑↓→/hjkl: move · Enter: open · d: kill · q: quit".into(),
+            status: String::new(),
+            status_at: Instant::now(),
             should_quit: false,
             attach_to: None,
             selected_cwd: None,
             rx,
         }
+    }
+
+    /// Show a transient status message in the bottom bar.
+    pub fn note(&mut self, msg: impl Into<String>) {
+        self.status = msg.into();
+        self.status_at = Instant::now();
     }
 
     /// Handle a key event.
@@ -58,7 +69,7 @@ impl App {
                     let path = input.clone();
                     self.mode = Mode::Normal;
                     if let Err(e) = self.spawn_agent(&path) {
-                        self.status = format!("error: {e}");
+                        self.note(format!("error: {e}"));
                     }
                 }
                 KeyCode::Backspace => {
@@ -135,8 +146,7 @@ impl App {
                 self.attach_to = a.window_id.clone();
             }
             Some(_) => {
-                self.status =
-                    "external claude (not in an enxame tmux window) — monitor only".into();
+                self.note("external claude (not in an enxame tmux window) — monitor only");
             }
             None => {}
         }
@@ -149,11 +159,11 @@ impl App {
                     let _ = tmux::kill_window(&id);
                     self.agents.remove(self.selected);
                     self.reconcile_selection();
-                    self.status = "agent window killed".into();
+                    self.note("agent window killed");
                 }
             }
             Some(_) => {
-                self.status = "external claude — enxame won't kill processes it didn't start".into();
+                self.note("external claude — enxame won't kill processes it didn't start");
             }
             None => {}
         }
@@ -173,7 +183,7 @@ impl App {
             .unwrap_or_else(|| "agent".into());
         tmux::new_window(&name, &canon.to_string_lossy(), "claude")?;
         self.selected_cwd = Some(canon);
-        self.status = "agent started — claude launching".into();
+        self.note("agent started — claude launching");
         Ok(())
     }
 
