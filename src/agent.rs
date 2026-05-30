@@ -41,6 +41,12 @@ pub struct AgentState {
     pub final_marker: Option<String>,
 }
 
+/// Folders that are Claude's own scaffolding rather than the agent's work —
+/// excluded from the displayed folder lists.
+pub fn is_noise_folder(name: &str) -> bool {
+    matches!(name, "memory" | ".claude")
+}
+
 /// One Claude project node.
 #[derive(Debug, Clone)]
 pub struct Agent {
