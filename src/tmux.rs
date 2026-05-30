@@ -15,10 +15,10 @@ pub fn socket() -> &'static str {
     S.get_or_init(|| std::env::var("ENXAME_SOCKET").unwrap_or_else(|_| "enxame".into()))
 }
 
-/// tmux session name. Override with `ENXAME_session()`.
+/// tmux session name. Override with `ENXAME_SESSION`.
 pub fn session() -> &'static str {
     static S: OnceLock<String> = OnceLock::new();
-    S.get_or_init(|| std::env::var("ENXAME_session()").unwrap_or_else(|_| "enxame".into()))
+    S.get_or_init(|| std::env::var("ENXAME_SESSION").unwrap_or_else(|_| "enxame".into()))
 }
 
 /// A tmux window backing a single agent. `id` is a stable tmux window id
@@ -94,11 +94,9 @@ fn configure() {
         // Alt-o) and Fn keys are awkward on macOS — a no-prefix binding would
         // swallow whatever it's bound to before Claude sees it.
         &["bind-key", "-n", "C-q", "detach-client"],
-        // Keep a window after its process (claude) exits instead of silently
-        // destroying it — otherwise a finished/crashed agent's terminal just
-        // vanishes. The dead pane stays with its final output + exit status;
-        // close it with `d`.
-        &["set-option", "-g", "remain-on-exit", "on"],
+        // When a claude exits/dies, let tmux destroy its window so the dead
+        // agent is cleaned up (rather than lingering as a dead pane).
+        &["set-option", "-g", "remain-on-exit", "off"],
         // Drop bindings from earlier versions so they stop shadowing Claude.
         &["unbind-key", "-n", "M-o"],
         &["unbind-key", "-n", "F12"],
