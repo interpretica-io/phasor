@@ -4,6 +4,8 @@
 mod agent;
 mod app;
 mod discover;
+mod scan;
+mod server;
 mod transcript;
 mod tmux;
 mod ui;
@@ -36,6 +38,13 @@ fn main() -> Result<()> {
         Some("render") => return render_once(),
         Some("--exec") => return exec_window(),
         Some("--start") => return start_window(),
+        Some("serve") => {
+            let port = std::env::args()
+                .nth(2)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(7878);
+            return server::serve(port);
+        }
         _ => {}
     }
     run_dashboard(None)
