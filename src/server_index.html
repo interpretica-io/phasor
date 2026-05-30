@@ -366,7 +366,11 @@ function connect(wid){
   term.onResize(()=>sendResize());
   addEventListener("resize",onWinResize);
 }
-function sendResize(){if(ws&&ws.readyState===1&&term)ws.send(JSON.stringify({resize:{cols:term.cols,rows:term.rows}}));}
+function sendResize(){
+  if(!(ws&&ws.readyState===1&&term))return;
+  // Don't push tiny/garbage sizes — they crash the agent's TUI.
+  if(term.cols>=10&&term.rows>=4) ws.send(JSON.stringify({resize:{cols:term.cols,rows:term.rows}}));
+}
 function onWinResize(){if(fit)fit.fit();}
 function closeTerm(){removeEventListener("resize",onWinResize);
   if(ws){try{ws.close();}catch(e){}ws=null;}if(term){term.dispose();term=null;}
