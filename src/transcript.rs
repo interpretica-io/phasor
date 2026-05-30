@@ -16,7 +16,9 @@ use std::time::{Duration, SystemTime};
 
 const MAX_PHRASES: usize = 4;
 /// How much of the (potentially huge) transcript tail to parse per poll.
-const TAIL_BYTES: u64 = 512 * 1024;
+/// (Larger than it used to be so more touched folders are seen; the scanner
+/// also accumulates folders across polls so they never silently disappear.)
+const TAIL_BYTES: u64 = 2 * 1024 * 1024;
 /// Activity newer than this counts as "working".
 const WORKING_WINDOW: Duration = Duration::from_secs(20);
 
@@ -138,7 +140,7 @@ pub fn parse(path: &Path, root: &Path) -> Result<AgentState> {
                             }
                         }
                         Some("tool_use") => {
-                            harvest_tool_use(block, &mut state, &mut dirs);
+                            harvest_tool_use(block, &mut state, &mut dirs, root);
                         }
                         _ => {}
                     }
@@ -172,6 +174,7 @@ fn harvest_tool_use(
     block: &serde_json::Value,
     state: &mut AgentState,
     dirs: &mut BTreeSet<PathBuf>,
+    root: &Path,
 ) {
     let name = block.get("name").and_then(|n| n.as_str()).unwrap_or("");
     let input = block.get("input");
@@ -191,15 +194,51 @@ fn harvest_tool_use(
         return;
     }
 
-    // File-touching tools expose an absolute path; record its parent dir.
+    // File-touching tools expose a real path; trust it — record its parent dir.
     for key in ["file_path", "path", "notebook_path"] {
         if let Some(p) = input.get(key).and_then(|p| p.as_str()) {
-            let path = PathBuf::from(p);
-            if let Some(parent) = path.parent() {
+            if let Some(parent) = PathBuf::from(p).parent() {
                 if parent.is_absolute() {
                     dirs.insert(parent.to_path_buf());
                 }
             }
+        }
+    }
+
+    // Bash/shell commands reference paths inside the command string. This is a
+    // heuristic, so it's strict: under the agent's root, no shell vars/globs,
+    // and the directory must actually exist.
+    if let Some(cmd) = input.get("command").and_then(|c| c.as_str()) {
+        for tok in cmd.split(|c: char| c.is_whitespace() || "\"'`;|&()<>=,:".contains(c)) {
+            if tok.len() < 3
+                || tok.starts_with('-')
+                || tok.contains("://")
+                || tok.bytes().any(|b| matches!(b, b'$' | b'*' | b'?' | b'{' | b'}' | b'\\' | b'!'))
+            {
+                continue;
+            }
+            if tok.starts_with('/') || tok.starts_with("./") || tok.contains('/') {
+                add_bash_dir(tok, dirs, root);
+            }
+        }
+    }
+}
+
+/// Resolve a path-like Bash token to a directory and record it only if it sits
+/// under the agent's root and actually exists (keeps shell noise out).
+fn add_bash_dir(p: &str, dirs: &mut BTreeSet<PathBuf>, root: &Path) {
+    let path = if p.starts_with('/') {
+        PathBuf::from(p)
+    } else {
+        root.join(p.trim_start_matches("./"))
+    };
+    let dir = match path.file_name().and_then(|n| n.to_str()) {
+        Some(name) if name.contains('.') => path.parent().map(|x| x.to_path_buf()),
+        _ => Some(path),
+    };
+    if let Some(dir) = dir {
+        if dir.is_absolute() && dir != root && dir.starts_with(root) && !dirs.contains(&dir) && dir.is_dir() {
+            dirs.insert(dir);
         }
     }
 }
