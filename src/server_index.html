@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>◍ enxame</title>
+<title>◍ phasor</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
@@ -157,7 +157,7 @@
 <body>
 <svg id="graph"></svg>
 <header>
-  <div class="brand"><span class="o">◍</span> enxame</div>
+  <div class="brand"><span class="o">◍</span> phasor</div>
   <div class="stats">
     <div class="stat total"><div class="v" id="s-total">0</div><div class="l">agents</div></div>
     <div class="stat work"><div class="v" id="s-work">0</div><div class="l">working</div></div>
@@ -175,7 +175,7 @@
 
 <div id="projov" onclick="if(event.target===this)closeProjects()">
   <div id="proj-wrap">
-    <div id="proj-bar"><span>◆ projects · <span style="font-weight:400;color:var(--dim)">~/.enxame/projects.json</span></span>
+    <div id="proj-bar"><span>◆ projects · <span style="font-weight:400;color:var(--dim)">~/.phasor/projects.json</span></span>
       <span class="x" onclick="closeProjects()">✕</span></div>
     <div id="proj-body">
       <p class="proj-help">Each project maps a directory <b>prefix</b> to a <b>name</b> and group <b>color</b>.
@@ -209,7 +209,7 @@ const base=p=>(p||"").replace(/\/+$/,"").split("/").pop()||p;
 const normHex=c=>{ if(!c) return null; const h=String(c).replace(/^#/,""); return /^[0-9a-fA-F]{6}$/.test(h)?"#"+h:null; };
 
 // ---- theme ----
-const TK="enxame-theme";
+const TK="phasor-theme";
 const tmode=()=>localStorage.getItem(TK)||"auto";
 const resolved=()=>{const m=tmode();return m!=="auto"?m:(matchMedia("(prefers-color-scheme: light)").matches?"light":"dark");};
 function applyTheme(){const m=tmode(),r=document.documentElement;
