@@ -82,6 +82,11 @@
   .node.ext .idx,.node.idle .idx{fill:#06121a}
   .node .lbl{fill:var(--txt);font:600 13px var(--sans);text-anchor:middle;paint-order:stroke;
     stroke:var(--bg);stroke-width:4px;pointer-events:none}
+  .node .instr{font:14px var(--sans);text-anchor:middle;cursor:pointer;paint-order:stroke;
+    stroke:var(--bg);stroke-width:3px}
+  .node .instr.has{fill:var(--amber)}
+  .node .instr.none{fill:var(--dim);opacity:.45}
+  .node .instr.none:hover{opacity:1;fill:var(--accent)}
   .node.ext .lbl{fill:var(--dim)}
 
   /* folder list hanging in a column right under the agent node */
@@ -135,7 +140,7 @@
     <button id="theme" class="themebtn" onclick="cycleTheme()" title="theme">◐</button>
   </div>
 </header>
-<div class="hint2">drag to rearrange · scroll to zoom · click a ⧉ tmux node to open its terminal</div>
+<div class="hint2">drag to rearrange · scroll to zoom · click a ⧉ tmux node to open it · right-click to queue an instruction</div>
 <div id="tip"></div>
 
 <div id="ov" onclick="if(event.target===this)closeTerm()">
@@ -194,7 +199,7 @@ const seqs=new Map();  // agent id -> last completion seq
 function build(agents){
   const N=agents.map((a,i)=>({id:a.id,i,label:a.label,status:a.status,load:a.load||0,
       openable:a.openable,wid:a.wid,phrase:a.phrase,todos:a.todos,procs:a.procs,seq:a.seq,
-      hue:hue(a.phrase),folders:a.folders||[]}));
+      hue:hue(a.phrase),folders:a.folders||[],pend:a.pending||null}));
   N.forEach(n=>{const p=pos.get(n.id);if(p){n.x=p.x;n.y=p.y;n.vx=p.vx;n.vy=p.vy;}});
 
   // Links between agents that share working folders (weight = #shared).
@@ -249,7 +254,10 @@ function update(agents){
   en.append("circle").attr("class","core");
   en.append("text").attr("class","idx");
   en.append("text").attr("class","lbl");
+  en.append("text").attr("class","instr")
+    .on("click",(e,d)=>{ e.stopPropagation(); instruct(d); });
   en.on("click",(e,d)=>{ if(d.openable&&d.wid) openTerm(d.wid,d.label); })
+    .on("contextmenu",(e,d)=>{ e.preventDefault(); instruct(d); })
     .on("mousemove",(e,d)=>showTip(e,d)).on("mouseleave",hideTip);
 
   const all=en.merge(nd);
@@ -265,6 +273,9 @@ function update(agents){
     g.select(".burst").attr("stroke","none");
     g.select(".idx").text(d.i+1);
     g.select(".lbl").attr("y",r+22).text(d.label);
+    const ins=g.select(".instr").attr("y",-(r+8));
+    if(d.openable){ ins.text(d.pend?"↻":"✎").attr("class","instr "+(d.pend?"has":"none")); }
+    else { ins.text(""); }
     g.style("--h",d.hue);
     // folder column hanging straight below the node
     const fl=g.selectAll("text.frow").data(d.folders);
@@ -343,6 +354,14 @@ async function tick(){
 const s_total=document.getElementById("s-total"),s_work=document.getElementById("s-work"),
       s_idle=document.getElementById("s-idle"),s_ext=document.getElementById("s-ext");
 tick(); setInterval(tick,1500);
+
+// ---- queue an auto-send instruction (right-click a tmux node) ----
+function instruct(d){
+  if(!(d.openable&&d.wid)) return;
+  const t=prompt("Instruction to auto-send when this agent finishes a turn (empty to clear):", d.pend||"");
+  if(t===null) return;
+  fetch("/api/instruct?w="+encodeURIComponent(d.wid),{method:"POST",body:t}).catch(()=>{});
+}
 
 // ---- xterm.js terminal ----
 var term=null,fit=null,ws=null;
