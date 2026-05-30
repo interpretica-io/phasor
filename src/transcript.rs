@@ -140,9 +140,26 @@ pub fn parse(path: &Path, root: &Path) -> Result<AgentState> {
                             }
                         }
                         Some("tool_use") => {
-                            harvest_tool_use(block, &mut state, &mut dirs, root);
+                            harvest_tool_use(block, &mut state, &mut dirs);
                         }
                         _ => {}
+                    }
+                }
+            }
+            Some("user") => {
+                // `/add-dir <path>` declares an extra working directory — treat
+                // it as a work dir directly.
+                if let Some(c) = v
+                    .get("message")
+                    .and_then(|m| m.get("content"))
+                    .and_then(|c| c.as_str())
+                {
+                    if c.contains("<command-name>/add-dir</command-name>") {
+                        if let Some(arg) = between(c, "<command-args>", "</command-args>") {
+                            if let Some(p) = resolve_dir(arg.trim(), root) {
+                                dirs.insert(p);
+                            }
+                        }
                     }
                 }
             }
@@ -159,6 +176,30 @@ pub fn parse(path: &Path, root: &Path) -> Result<AgentState> {
     Ok(state)
 }
 
+/// Slice between two delimiters (first occurrence), if present.
+fn between<'a>(s: &'a str, a: &str, b: &str) -> Option<&'a str> {
+    let start = s.find(a)? + a.len();
+    let end = s[start..].find(b)? + start;
+    Some(&s[start..end])
+}
+
+/// Resolve a `/add-dir` argument (which may use `~`, be absolute, or relative
+/// to the session root) to an absolute directory path.
+fn resolve_dir(arg: &str, root: &Path) -> Option<PathBuf> {
+    if arg.is_empty() {
+        return None;
+    }
+    let p = if let Some(rest) = arg.strip_prefix('~') {
+        let home = dirs::home_dir()?;
+        home.join(rest.trim_start_matches('/'))
+    } else if arg.starts_with('/') {
+        PathBuf::from(arg)
+    } else {
+        root.join(arg)
+    };
+    Some(p)
+}
+
 fn push_phrase(state: &mut AgentState, txt: &str) {
     // Collapse whitespace and clamp length for display.
     let one_line: String = txt.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -169,13 +210,12 @@ fn push_phrase(state: &mut AgentState, txt: &str) {
     }
 }
 
-/// Pull todo progress and touched directories out of a tool_use block.
-fn harvest_tool_use(
-    block: &serde_json::Value,
-    state: &mut AgentState,
-    dirs: &mut BTreeSet<PathBuf>,
-    root: &Path,
-) {
+/// Pull todo progress and **working directories** out of a tool_use block.
+///
+/// A working directory is one the agent actually *changes files in* — so only
+/// mutating tools count. Reads, greps, globs and shell commands are exploration
+/// (just "folders it used"), not where it works, and are ignored.
+fn harvest_tool_use(block: &serde_json::Value, state: &mut AgentState, dirs: &mut BTreeSet<PathBuf>) {
     let name = block.get("name").and_then(|n| n.as_str()).unwrap_or("");
     let input = block.get("input");
     let Some(input) = input else { return };
@@ -194,51 +234,15 @@ fn harvest_tool_use(
         return;
     }
 
-    // File-touching tools expose a real path; trust it — record its parent dir.
-    for key in ["file_path", "path", "notebook_path"] {
-        if let Some(p) = input.get(key).and_then(|p| p.as_str()) {
-            if let Some(parent) = PathBuf::from(p).parent() {
-                if parent.is_absolute() {
-                    dirs.insert(parent.to_path_buf());
+    if matches!(name, "Edit" | "Write" | "MultiEdit" | "NotebookEdit" | "Update") {
+        for key in ["file_path", "notebook_path", "path"] {
+            if let Some(p) = input.get(key).and_then(|p| p.as_str()) {
+                if let Some(parent) = PathBuf::from(p).parent() {
+                    if parent.is_absolute() {
+                        dirs.insert(parent.to_path_buf());
+                    }
                 }
             }
-        }
-    }
-
-    // Bash/shell commands reference paths inside the command string. This is a
-    // heuristic, so it's strict: under the agent's root, no shell vars/globs,
-    // and the directory must actually exist.
-    if let Some(cmd) = input.get("command").and_then(|c| c.as_str()) {
-        for tok in cmd.split(|c: char| c.is_whitespace() || "\"'`;|&()<>=,:".contains(c)) {
-            if tok.len() < 3
-                || tok.starts_with('-')
-                || tok.contains("://")
-                || tok.bytes().any(|b| matches!(b, b'$' | b'*' | b'?' | b'{' | b'}' | b'\\' | b'!'))
-            {
-                continue;
-            }
-            if tok.starts_with('/') || tok.starts_with("./") || tok.contains('/') {
-                add_bash_dir(tok, dirs, root);
-            }
-        }
-    }
-}
-
-/// Resolve a path-like Bash token to a directory and record it only if it sits
-/// under the agent's root and actually exists (keeps shell noise out).
-fn add_bash_dir(p: &str, dirs: &mut BTreeSet<PathBuf>, root: &Path) {
-    let path = if p.starts_with('/') {
-        PathBuf::from(p)
-    } else {
-        root.join(p.trim_start_matches("./"))
-    };
-    let dir = match path.file_name().and_then(|n| n.to_str()) {
-        Some(name) if name.contains('.') => path.parent().map(|x| x.to_path_buf()),
-        _ => Some(path),
-    };
-    if let Some(dir) = dir {
-        if dir.is_absolute() && dir != root && dir.starts_with(root) && !dirs.contains(&dir) && dir.is_dir() {
-            dirs.insert(dir);
         }
     }
 }
