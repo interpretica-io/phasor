@@ -44,6 +44,22 @@
   .agent.tmux:hover{background:rgba(108,182,255,.06)}
   .agent.ext{opacity:.78}
 
+  /* "task completed" celebration: pop + shimmering gradient in the response's hue */
+  .agent.done{animation:pop .5s cubic-bezier(.2,.9,.3,1.2);z-index:3}
+  .agent.done::after{
+    content:"";position:absolute;inset:-2px;border-radius:13px;pointer-events:none;
+    background:linear-gradient(115deg,
+      hsla(var(--h,210),90%,62%,0) 20%,
+      hsla(var(--h,210),95%,64%,.40) 45%,
+      hsla(calc(var(--h,210) + 50),95%,64%,.40) 55%,
+      hsla(var(--h,210),90%,62%,0) 80%);
+    background-size:260% 100%;
+    box-shadow:0 0 0 1px hsla(var(--h,210),95%,66%,.7), 0 10px 46px hsla(var(--h,210),90%,55%,.45);
+    animation:shimmer 3s ease forwards;
+  }
+  @keyframes pop{0%{transform:scale(1)}35%{transform:scale(1.07)}100%{transform:scale(1)}}
+  @keyframes shimmer{0%{background-position:120% 0;opacity:1}85%{opacity:1}100%{background-position:-60% 0;opacity:0}}
+
   .row1{display:flex;align-items:baseline;gap:10px}
   .num{font-family:var(--mono);font-size:22px;font-weight:700;color:#8fa6c8;min-width:24px}
   .agent.ext .num{color:#59617a}
@@ -58,6 +74,13 @@
   .bar{flex:1;max-width:160px;height:4px;border-radius:99px;background:#1e2433;overflow:hidden}
   .bar>i{display:block;height:100%;background:linear-gradient(90deg,#46d089,#86e0ad)}
   .count{font-family:var(--mono);font-size:11.5px}
+
+  .loadrow{display:flex;align-items:center;gap:9px;margin:9px 0 0 34px}
+  .loadpct{font-family:var(--mono);font-size:11.5px;color:var(--dim);min-width:42px}
+  .spark{flex:1;max-width:230px;height:30px;display:block}
+  .sparkline{fill:none;stroke:#46d089;stroke-width:1.5;vector-effect:non-scaling-stroke}
+  .sparkarea{fill:url(#sg);stroke:none}
+  .agent.ext .sparkline{stroke:#5f6c7e}
 
   .phrase{margin:8px 0 0 34px;color:var(--dim);font-style:italic;font-size:12.5px;
           display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -91,6 +114,12 @@
   <div class="counts" id="counts">…</div>
   <div class="live"><span class="p"></span> live</div>
 </header>
+<svg width="0" height="0" style="position:absolute"><defs>
+  <linearGradient id="sg" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="rgba(70,208,137,.32)"/>
+    <stop offset="100%" stop-color="rgba(70,208,137,0)"/>
+  </linearGradient>
+</defs></svg>
 <main id="grid"></main>
 
 <div id="ov" onclick="if(event.target===this)closeTerm()">
@@ -116,8 +145,20 @@ function tree(folders){
   }).join("") + '</div>';
 }
 
-function agentEl(a, i){
-  const cls = a.openable ? "tmux" : "ext";
+function spark(act){
+  const w=100, h=30;
+  const a = (act&&act.length)? act : [0];
+  const n=a.length;
+  const pts=a.map((v,i)=>[ n>1 ? (i/(n-1))*w : 0, h-(Math.max(0,Math.min(100,v))/100)*(h-2)-1 ]);
+  const line=pts.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" ");
+  const area=line+` L ${w} ${h} L 0 ${h} Z`;
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">`+
+         `<path class="sparkarea" d="${area}"/><path class="sparkline" d="${line}"/></svg>`;
+}
+// Hue derived from the last AI response text — its "colour".
+function hue(s){ let h=2166136261; for(const c of (s||" ")){ h^=c.charCodeAt(0); h=(h*16777619)>>>0; } return h%360; }
+
+function innerHtml(a, i){
   const dotcls = a.openable ? a.status : "extdot";
   const tag = a.openable ? '<span class="tag tmux">⧉ tmux</span>'
                          : '<span class="tag">external'+(a.procs>1?' ×'+a.procs:'')+'</span>';
@@ -127,33 +168,67 @@ function agentEl(a, i){
   } else {
     meta = `<div class="meta"><span>${a.status}</span></div>`;
   }
+  const loadrow = `<div class="loadrow"><span class="loadpct">⚡ ${a.load||0}%</span>${spark(a.activity)}</div>`;
   const phrase = a.phrase ? `<div class="phrase">${esc(a.phrase)}</div>` : "";
-  const el = document.createElement("div");
-  el.className = "agent "+cls;
-  el.innerHTML =
-    `<div class="row1"><span class="num">${i+1}</span><span class="dot ${dotcls}"></span>`+
-    `<span class="name">${esc(a.label)}</span>${tag}</div>`+
-    meta + phrase + tree(a.folders);
-  if(a.openable && a.wid){
-    el.title = "click to open terminal";
-    el.onclick = ()=>openTerm(a.wid, a.label);
-  }
-  return el;
+  return `<div class="row1"><span class="num">${i+1}</span><span class="dot ${dotcls}"></span>`+
+         `<span class="name">${esc(a.label)}</span>${tag}</div>`+
+         meta + loadrow + phrase + tree(a.folders);
 }
 
+// Keyed, in-place rendering so completion animations aren't interrupted by the
+// 1.5s refresh.
+const cards = {};       // cwd -> {el, seq, timer}
+let lastOrder = "";
 async function tick(){
+  let d;
   try{
     const r = await fetch("/api/agents",{cache:"no-store"});
-    const d = await r.json();
-    document.getElementById("counts").innerHTML =
-      `<b>${d.openable}</b> in tmux · <b>${d.external}</b> external`;
-    const grid = document.getElementById("grid");
-    grid.innerHTML = "";
-    if(!d.agents.length){ grid.innerHTML = '<div class="empty">No claude agents found.</div>'; return; }
-    d.agents.forEach((a,i)=>grid.appendChild(agentEl(a,i)));
-  }catch(e){}
+    d = await r.json();
+  }catch(e){ return; }
+  document.getElementById("counts").innerHTML =
+    `<b>${d.openable}</b> in tmux · <b>${d.external}</b> external`;
+  const grid = document.getElementById("grid");
+  const empty = grid.querySelector(".empty"); if(empty) empty.remove();
+
+  const seen = new Set();
+  d.agents.forEach((a,i)=>{
+    seen.add(a.cwd);
+    let e = cards[a.cwd];
+    if(!e){ const el=document.createElement("div"); e={el,seq:a.seq,timer:0}; cards[a.cwd]=e; grid.appendChild(el); }
+    const el = e.el;
+    el.classList.add("agent");
+    el.classList.toggle("tmux", a.openable);
+    el.classList.toggle("ext", !a.openable);
+    el.style.setProperty("--h", hue(a.phrase));
+    el.innerHTML = innerHtml(a, i);
+    el.onclick = (a.openable && a.wid) ? ()=>openTerm(a.wid, a.label) : null;
+    el.title = (a.openable && a.wid) ? "click to open terminal" : "";
+    // Fresh completion → celebrate for 3s.
+    if(a.seq > e.seq){
+      e.seq = a.seq;
+      el.classList.remove("done"); void el.offsetWidth; // restart animation
+      el.classList.add("done");
+      clearTimeout(e.timer);
+      e.timer = setTimeout(()=>el.classList.remove("done"), 3000);
+    }
+  });
+  // remove vanished agents
+  for(const cwd of Object.keys(cards)){
+    if(!seen.has(cwd)){ cards[cwd].el.remove(); delete cards[cwd]; }
+  }
+  if(!d.agents.length && !grid.querySelector(".empty")){
+    grid.innerHTML = '<div class="empty">No claude agents found.</div>';
+    return;
+  }
+  // Reorder DOM to match API order only when it actually changed (avoids
+  // reflows that could disturb running animations).
+  const order = d.agents.map(a=>a.cwd).join("\n");
+  if(order !== lastOrder){
+    lastOrder = order;
+    d.agents.forEach(a=>{ const e=cards[a.cwd]; if(e) grid.appendChild(e.el); });
+  }
 }
-tick(); const timer = setInterval(tick, 1500);
+tick(); setInterval(tick, 1500);
 
 // ---- xterm.js terminal over WebSocket ----
 let term=null, fit=null, ws=null;
