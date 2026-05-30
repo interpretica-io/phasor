@@ -63,7 +63,8 @@
 
   #graph{position:fixed;inset:0;width:100%;height:100%;z-index:1;display:block}
 
-  .link{stroke:var(--accent);stroke-opacity:.18}
+  .link{stroke:var(--accent);stroke-opacity:.18;pointer-events:none}
+  .linkhit{stroke:transparent;stroke-width:14;cursor:help;pointer-events:stroke}
   .node{cursor:default}
   .node.openable{cursor:pointer}
   .node .ring{fill:none;stroke:var(--accent);stroke-opacity:.85;stroke-width:3;stroke-linecap:round;
@@ -168,7 +169,7 @@ matchMedia("(prefers-color-scheme: light)").addEventListener("change",applyTheme
 // ---- D3 force graph ----
 const svg=d3.select("#graph");
 const root=svg.append("g");
-const gLink=root.append("g"), gNode=root.append("g");
+const gLink=root.append("g"), gHit=root.append("g"), gNode=root.append("g");
 let W=innerWidth,H=innerHeight;
 svg.call(d3.zoom().scaleExtent([.35,3]).on("zoom",e=>root.attr("transform",e.transform)));
 
@@ -199,8 +200,8 @@ function build(agents){
   for(let i=0;i<agents.length;i++){
     const fa=new Set(agents[i].folders||[]); if(!fa.size) continue;
     for(let j=i+1;j<agents.length;j++){
-      let w=0; for(const f of (agents[j].folders||[])) if(fa.has(f)) w++;
-      if(w>0) L.push({source:agents[i].cwd,target:agents[j].cwd,w});
+      const sh=[]; for(const f of (agents[j].folders||[])) if(fa.has(f)) sh.push(f);
+      if(sh.length) L.push({source:agents[i].cwd,target:agents[j].cwd,w:sh.length,shared:sh});
     }
   }
   // Colour each cluster (connected component) with its own hue.
@@ -223,12 +224,19 @@ function update(agents){
 
   // overlap links
   const light=resolved()==="light";
-  const lk=gLink.selectAll("line").data(links,d=>(d.source.id||d.source)+"|"+(d.target.id||d.target));
+  const lkey=d=>(d.source.id||d.source)+"|"+(d.target.id||d.target);
+  const lk=gLink.selectAll("line").data(links,lkey);
   lk.exit().remove();
   lk.enter().append("line").attr("class","link").merge(lk)
     .attr("stroke",d=>`hsl(${(d.hue||210).toFixed(0)},70%,${light?"42%":"63%"})`)
     .attr("stroke-opacity",d=>Math.min(.6,.2+d.w*.13))
     .attr("stroke-width",d=>1+Math.min(3.5,d.w*.7));
+  // wide invisible hit area so the thin line is easy to hover
+  const ht=gHit.selectAll("line").data(links,lkey);
+  ht.exit().remove();
+  ht.enter().append("line").attr("class","linkhit")
+    .on("mousemove",(e,d)=>showLinkTip(e,d)).on("mouseleave",hideTip)
+    .merge(ht);
 
   const nd=gNode.selectAll("g.nodeg").data(nodes,d=>d.id);
   nd.exit().remove();
@@ -284,8 +292,9 @@ function update(agents){
 }
 
 function ticked(){
-  gLink.selectAll("line")
-    .attr("x1",d=>d.source.x).attr("y1",d=>d.source.y)
+  gLink.selectAll("line").attr("x1",d=>d.source.x).attr("y1",d=>d.source.y)
+    .attr("x2",d=>d.target.x).attr("y2",d=>d.target.y);
+  gHit.selectAll("line").attr("x1",d=>d.source.x).attr("y1",d=>d.source.y)
     .attr("x2",d=>d.target.x).attr("y2",d=>d.target.y);
   gNode.selectAll("g.nodeg").attr("transform",d=>`translate(${d.x||0},${d.y||0})`);
   nodes.forEach(n=>pos.set(n.id,{x:n.x,y:n.y,vx:n.vx,vy:n.vy}));
@@ -306,6 +315,15 @@ function showTip(e,d){
     `<div class="tm">${m}</div>`+(d.phrase?`<div class="tp">${esc(d.phrase)}</div>`:"");
   tip.classList.add("on");
   const x=Math.min(e.clientX+16,innerWidth-360), y=Math.min(e.clientY+16,innerHeight-160);
+  tip.style.left=x+"px"; tip.style.top=y+"px";
+}
+function showLinkTip(e,d){
+  const a=d.source.label||d.source.id, b=d.target.label||d.target.id;
+  const list=(d.shared||[]).map(f=>`<div class="ln"><span class="br">→ </span>${esc(f)}</div>`).join("");
+  tip.innerHTML=`<div class="tt">${d.shared.length} shared folder${d.shared.length>1?"s":""}</div>`+
+    `<div class="tm">${esc(a)} ⇄ ${esc(b)}</div><div class="tp" style="font-style:normal">${list}</div>`;
+  tip.classList.add("on");
+  const x=Math.min(e.clientX+16,innerWidth-360), y=Math.min(e.clientY+16,innerHeight-200);
   tip.style.left=x+"px"; tip.style.top=y+"px";
 }
 function hideTip(){tip.classList.remove("on");}
