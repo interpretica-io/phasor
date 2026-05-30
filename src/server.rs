@@ -306,7 +306,12 @@ fn parse_resize(t: &str) -> Option<(u16, u16)> {
     let r = v.get("resize")?;
     let cols = r.get("cols")?.as_u64()? as u16;
     let rows = r.get("rows")?.as_u64()? as u16;
-    Some((cols.max(1), rows.max(1)))
+    // Never resize the agent's terminal to a tiny size — Ink/React TUIs (like
+    // claude) crash on 0/1-cell dimensions. Clamp to a sane floor.
+    if cols < 10 || rows < 4 {
+        return None;
+    }
+    Some((cols, rows))
 }
 
 /// Accept only `@<digits>` so the value is safe to put in a shell command.
