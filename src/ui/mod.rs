@@ -48,8 +48,17 @@ pub fn render(f: &mut Frame, app: &App) -> Vec<HitBox> {
     };
     render_status(f, chunks[2], app);
 
-    if let Mode::NewAgent { input } = &app.mode {
-        render_input_popup(f, f.area(), input);
+    match &app.mode {
+        Mode::NewAgent { input } => {
+            render_input_popup(f, f.area(), " working directory for new agent (Enter / Esc) ", input)
+        }
+        Mode::Instruct { input } => render_input_popup(
+            f,
+            f.area(),
+            " instruction to auto-send when the agent finishes (Enter / Esc) ",
+            input,
+        ),
+        Mode::Normal => {}
     }
     hits
 }
@@ -101,7 +110,7 @@ fn render_status(f: &mut Frame, area: Rect, app: &App) {
             })
             .count();
         let bg = Color::Rgb(24, 28, 40);
-        Line::from(vec![
+        let mut spans = vec![
             Span::styled(format!(" {}/{} ", app.selected + 1, app.agents.len()), Style::new().fg(Color::Rgb(120, 150, 190)).bg(bg)),
             Span::styled("▸ ", Style::new().fg(Color::Rgb(120, 200, 255)).bg(bg)),
             Span::styled(a.label(), Style::new().fg(Color::White).bg(bg).bold()),
@@ -110,12 +119,16 @@ fn render_status(f: &mut Frame, area: Rect, app: &App) {
             Span::styled(format!("⚡{}%  ", a.load()), Style::new().fg(Color::Rgb(180, 170, 150)).bg(bg)),
             Span::styled(format!("[{tag}] "), Style::new().fg(if a.openable() { Color::Rgb(110, 180, 240) } else { Color::DarkGray }).bg(bg)),
             Span::styled(format!("· {folders} dir{}", if folders == 1 { "" } else { "s" }), Style::new().fg(Color::DarkGray).bg(bg)),
-        ])
+        ];
+        if a.pending.is_some() {
+            spans.push(Span::styled("  ↻ auto-instruct", Style::new().fg(Color::Rgb(235, 205, 110)).bg(bg)));
+        }
+        Line::from(spans)
     } else {
         Line::from(Span::styled(" no agents", bar_bg))
     };
 
-    let keys = " n new · 1-9 jump · ←↑↓→ move · ↵ open · d kill · q quit ";
+    let keys = " n new · i instruct · 1-9 jump · ←↑↓→ move · ↵ open · d kill · q quit ";
     let right = Line::from(Span::styled(keys, Style::new().fg(Color::Rgb(110, 120, 140)).bg(Color::Rgb(24, 28, 40))));
 
     f.render_widget(Paragraph::new(left), area);
@@ -135,8 +148,8 @@ fn render_empty(f: &mut Frame, area: Rect) {
     f.render_widget(msg, area);
 }
 
-fn render_input_popup(f: &mut Frame, area: Rect, input: &str) {
-    let w = area.width.saturating_sub(8).min(80);
+fn render_input_popup(f: &mut Frame, area: Rect, title: &str, input: &str) {
+    let w = area.width.saturating_sub(8).min(90);
     let h = 3;
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + area.height / 3;
@@ -145,7 +158,7 @@ fn render_input_popup(f: &mut Frame, area: Rect, input: &str) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::new().fg(Color::Cyan))
-        .title(" working directory for new agent (Enter / Esc) ");
+        .title(title.to_string());
     let inner = block.inner(popup);
     f.render_widget(block, popup);
     f.render_widget(
