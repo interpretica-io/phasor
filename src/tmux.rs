@@ -35,12 +35,32 @@ fn tmux() -> Command {
     c
 }
 
+/// Max time we'll wait for any tmux command. A wedged tmux server must never
+/// freeze enxame — commands time out and surface an error instead.
+const TMUX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
+
+/// Spawn a command and wait at most `TMUX_TIMEOUT`; kill it if it hangs.
+fn run_timed(c: &mut Command) -> Result<std::process::Output> {
+    use std::time::Instant;
+    c.stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null());
+    let mut child = c.spawn().context("failed to spawn tmux")?;
+    let deadline = Instant::now() + TMUX_TIMEOUT;
+    loop {
+        if child.try_wait()?.is_some() {
+            return Ok(child.wait_with_output()?);
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            anyhow::bail!("tmux command timed out (server unresponsive)");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(15));
+    }
+}
+
 /// Run a tmux subcommand, capturing stdout. Errors include stderr.
 fn run(args: &[&str]) -> Result<String> {
-    let out = tmux()
-        .args(args)
-        .output()
-        .context("failed to spawn tmux")?;
+    let out = run_timed(tmux().args(args))?;
     if !out.status.success() {
         anyhow::bail!(
             "tmux {:?} failed: {}",
@@ -51,14 +71,11 @@ fn run(args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// True if the enxame session already exists on our socket.
+/// True if the enxame session already exists on our socket (timeout-bounded, so
+/// a wedged server reports "no session" rather than hanging).
 fn session_exists() -> bool {
-    tmux()
-        .args(["has-session", "-t", session()])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
+    run_timed(tmux().args(["has-session", "-t", session()]))
+        .map(|o| o.status.success())
         .unwrap_or(false)
 }
 
@@ -100,16 +117,49 @@ fn configure() {
         // Drop bindings from earlier versions so they stop shadowing Claude.
         &["unbind-key", "-n", "M-o"],
         &["unbind-key", "-n", "F12"],
+        // Keep our window names (set from the agent's task title) — don't let
+        // the shell/program auto-rename them.
+        &["set-option", "-g", "automatic-rename", "off"],
+        &["set-option", "-g", "allow-rename", "off"],
+        // A clean dashboard-style status bar.
         &["set-option", "-g", "status", "on"],
-        &["set-option", "-g", "status-style", "bg=colour237,fg=colour250"],
-        &["set-option", "-g", "status-left", "#[bold] ◍ enxame #[default]"],
+        &["set-option", "-g", "status-interval", "5"],
+        &["set-option", "-g", "status-justify", "left"],
+        &["set-option", "-g", "status-style", "bg=#11141d,fg=#8a92a6"],
+        // brand chip on the left
+        &[
+            "set-option",
+            "-g",
+            "status-left",
+            "#[fg=#0c0e14,bg=#6cb6ff,bold] ◍ enxame #[bg=#11141d,fg=#8a92a6]  ",
+        ],
+        &["set-option", "-g", "status-left-length", "24"],
+        // window list: hide the `_enxame` placeholder; current window = green chip
+        &[
+            "set-option",
+            "-g",
+            "window-status-format",
+            "#{?#{==:#{window_name},_enxame},,#[fg=#5b6275] #I #W }",
+        ],
+        &[
+            "set-option",
+            "-g",
+            "window-status-current-format",
+            // NB: no commas inside the #[...] here — commas are argument
+            // separators inside the #{?...} conditional, so a comma in a style
+            // block leaks (e.g. `bold]`). Use separate #[] blocks instead.
+            "#{?#{==:#{window_name},_enxame},,#[fg=#0c0e14]#[bg=#5ce08a]#[bold] #W #[default]}",
+        ],
+        &["set-option", "-g", "window-status-separator", ""],
+        // right: session name + the detach hint, with Ctrl-Q accented
         &[
             "set-option",
             "-g",
             "status-right",
-            " ⟵  Ctrl-Q  (or prefix d)  back to dashboard ",
+            "#[fg=#5b6275]#S  #[fg=#8a92a6]#[fg=#6cb6ff,bold]Ctrl-Q#[fg=#8a92a6,nobold] detach ",
         ],
-        &["set-option", "-g", "status-right-length", "60"],
+        &["set-option", "-g", "status-right-length", "40"],
+        &["set-option", "-g", "message-style", "bg=#6cb6ff,fg=#0c0e14"],
     ];
     for c in cmds {
         let _ = run(c);
@@ -145,6 +195,43 @@ pub fn new_window(name: &str, cwd: &str, cmd: &str) -> Result<Window> {
     })
 }
 
+/// Rename a window (used to label agent windows by their task title).
+pub fn rename_window(window_id: &str, name: &str) -> Result<()> {
+    run(&["rename-window", "-t", window_id, name])?;
+    Ok(())
+}
+
+/// Generate a fresh v4 UUID for use as a claude `--session-id`.
+pub fn new_session_id() -> String {
+    use std::io::Read;
+    let mut b = [0u8; 16];
+    if std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut b))
+        .is_err()
+    {
+        // Fallback: derive from time + pid (good enough for uniqueness).
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let mix = t ^ ((std::process::id() as u128) << 96);
+        b.copy_from_slice(&mix.to_le_bytes());
+    }
+    b[6] = (b[6] & 0x0f) | 0x40; // version 4
+    b[8] = (b[8] & 0x3f) | 0x80; // variant
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]
+    )
+}
+
+/// Tag a window with the claude session id it's running, so the scanner can
+/// resolve that window's exact transcript file (not just the newest in the dir).
+pub fn set_window_session(window_id: &str, session_id: &str) -> Result<()> {
+    run(&["set-option", "-w", "-t", window_id, "@enxame_session", session_id])?;
+    Ok(())
+}
+
 /// List all agent windows in the enxame session (excludes nothing; the
 /// caller filters the `_enxame` placeholder if desired).
 pub fn list_windows() -> Result<Vec<Window>> {
@@ -168,9 +255,18 @@ pub fn list_windows() -> Result<Vec<Window>> {
         .collect())
 }
 
-/// List agent windows together with the current path of their active pane.
-/// The `_enxame` placeholder window is excluded.
-pub fn list_windows_with_cwd() -> Result<Vec<(Window, std::path::PathBuf)>> {
+/// An agent window with its active pane's cwd, pane process pid, and the claude
+/// session id we tagged it with (if any).
+pub struct WinInfo {
+    pub id: String,
+    pub cwd: std::path::PathBuf,
+    pub pane_pid: u32,
+    pub session_id: Option<String>,
+}
+
+/// List agent windows with the cwd and pane pid of their active pane. The
+/// `_enxame` placeholder window is excluded.
+pub fn list_windows_with_cwd() -> Result<Vec<WinInfo>> {
     if !session_exists() {
         return Ok(Vec::new());
     }
@@ -179,24 +275,25 @@ pub fn list_windows_with_cwd() -> Result<Vec<(Window, std::path::PathBuf)>> {
         "-t",
         session(),
         "-F",
-        "#{window_id}\t#{window_name}\t#{pane_current_path}",
+        "#{window_id}\t#{window_name}\t#{pane_pid}\t#{@enxame_session}\t#{pane_current_path}",
     ])?;
     let mut v = Vec::new();
     for line in out.lines() {
-        let mut parts = line.splitn(3, '\t');
-        let (Some(id), Some(name), Some(path)) = (parts.next(), parts.next(), parts.next()) else {
+        let mut parts = line.splitn(5, '\t');
+        let (Some(id), Some(name), Some(pid), Some(sid), Some(path)) =
+            (parts.next(), parts.next(), parts.next(), parts.next(), parts.next())
+        else {
             continue;
         };
         if name == "_enxame" {
             continue;
         }
-        v.push((
-            Window {
-                id: id.to_string(),
-                name: name.to_string(),
-            },
-            std::path::PathBuf::from(path),
-        ));
+        v.push(WinInfo {
+            id: id.to_string(),
+            cwd: std::path::PathBuf::from(path),
+            pane_pid: pid.trim().parse().unwrap_or(0),
+            session_id: (!sid.is_empty()).then(|| sid.to_string()),
+        });
     }
     Ok(v)
 }
