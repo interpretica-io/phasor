@@ -509,7 +509,7 @@ function saveProjects(){
     color:d.querySelector('input[type=color]').value
   })).filter(r=>r.name||r.prefix);
   setProjMsg("saving…");
-  fetch("/api/projects",{method:"POST",body:JSON.stringify(rows)})
+  fetch("/api/projects",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(rows)})
     .then(r=>r.ok?r.text():r.text().then(t=>Promise.reject(t||r.status)))
     .then(()=>{ setProjMsg("saved ✓"); tick(); setTimeout(closeProjects,700); })
     .catch(e=>setProjMsg("error: "+e));
