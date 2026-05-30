@@ -5,7 +5,7 @@
 //! transcripts that actually change, plus a cheap periodic discovery tick for
 //! the process/window set. `snapshot` is a one-off synchronous scan.
 
-use crate::agent::Agent;
+use crate::agent::{Agent, Status};
 use crate::{discover, transcript, tmux};
 use notify::{RecursiveMode, Watcher};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -34,6 +34,7 @@ struct Node {
     window_id: Option<String>,
     pids: Vec<u32>,
     session_id: Option<String>,
+    pending: Option<String>,
 }
 
 /// Discover all nodes: each enxame tmux window is its own node; each external
@@ -57,6 +58,7 @@ fn discover_nodes() -> Vec<Node> {
             window_id: Some(w.id.clone()),
             pids,
             session_id: w.session_id.clone(),
+            pending: w.pending.clone(),
         });
     }
     // One node per external claude (not inside any enxame window).
@@ -70,6 +72,7 @@ fn discover_nodes() -> Vec<Node> {
             window_id: None,
             pids: vec![p.pid],
             session_id: None,
+            pending: None,
         });
     }
     // Multiple external claudes in the same folder share one project dir but
@@ -104,13 +107,15 @@ fn node_to_agent(n: Node) -> Agent {
     a.pids = n.pids;
     a.window_id = n.window_id;
     a.session_id = n.session_id;
+    a.pending = n.pending;
     a
 }
 
 /// Locate and fully parse an agent's transcript (reads the file tail). If the
 /// last completed-turn marker changed, record a completion event (but never on
 /// the agent's very first parse, so pre-existing completions don't flash).
-fn reparse(agent: &mut Agent) {
+/// Returns true if the agent just finished a turn (a fresh completion).
+fn reparse(agent: &mut Agent) -> bool {
     let prev_marker = agent.state.final_marker.clone();
     let prev_dirs = agent.state.work_dirs.clone();
     // Prefer this agent's own session file (when enxame launched it with a known
@@ -137,9 +142,36 @@ fn reparse(agent: &mut Agent) {
             if prev_marker.is_some() && new_marker.is_some() && prev_marker != new_marker {
                 agent.completed_at = Some(SystemTime::now());
                 agent.completions = agent.completions.wrapping_add(1);
+                return true;
             }
         }
     }
+    false
+}
+
+/// If the agent has a queued instruction and has finished a turn we haven't
+/// acted on yet, either send the (repeating) instruction or — if it declared
+/// it's fully done — stop. Idempotent per turn via the `@enxame_sent` marker.
+fn try_autosend(agent: &mut Agent) {
+    let (Some(pending), Some(wid), Some(marker)) = (
+        agent.pending.clone(),
+        agent.window_id.clone(),
+        agent.state.final_marker.clone(),
+    ) else {
+        return;
+    };
+    if tmux::get_window_sent(&wid).as_deref() == Some(marker.as_str()) {
+        return; // already handled this turn
+    }
+    if agent.state.final_says_done {
+        let _ = tmux::set_window_pending(&wid, ""); // stop the repeat
+        agent.pending = None;
+    } else {
+        let msg =
+            format!("{pending} but if you really finished the task, write 'FINISHED COMPLETELY'");
+        let _ = tmux::send_text(&wid, &msg);
+    }
+    tmux::set_window_sent(&wid, &marker);
 }
 
 /// One-off full scan, used to populate the first frame.
@@ -236,6 +268,7 @@ fn run_scanner(tx: Sender<Vec<Agent>>) {
                         window_id: n.window_id.clone(),
                         pids: vec![],
                         session_id: n.session_id.clone(),
+                        pending: n.pending.clone(),
                     });
                     reparse(&mut a);
                     a
@@ -244,6 +277,7 @@ fn run_scanner(tx: Sender<Vec<Agent>>) {
                 entry.pids = n.pids;
                 entry.window_id = n.window_id;
                 entry.session_id = n.session_id;
+                entry.pending = n.pending;
                 if let Some(t) = &entry.transcript {
                     entry.state.status = transcript::status_from_mtime(t);
                 }
@@ -261,11 +295,22 @@ fn run_scanner(tx: Sender<Vec<Agent>>) {
         }
 
         // A changed transcript may belong to several nodes (same cwd) — reparse
-        // all of them.
+        // all of them. When one finishes a turn and has a queued instruction,
+        // auto-send it.
         for cwd in &dirty {
             for agent in agents.values_mut().filter(|a| &a.cwd == cwd) {
                 reparse(agent);
                 changed = true;
+                // Just finished a turn → act on a queued instruction immediately.
+                try_autosend(agent);
+            }
+        }
+
+        // Also catch agents that already finished/idle when the instruction was
+        // queued (no fresh completion event to ride on).
+        for agent in agents.values_mut() {
+            if agent.pending.is_some() && agent.state.status == Status::Idle {
+                try_autosend(agent);
             }
         }
 
