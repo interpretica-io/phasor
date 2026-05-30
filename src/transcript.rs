@@ -61,6 +61,25 @@ pub fn newest_session(cwd: &Path, not_before: SystemTime) -> Option<PathBuf> {
     best.map(|(_, p)| p)
 }
 
+/// All session `*.jsonl` files for a cwd, newest-modified first.
+pub fn sessions(cwd: &Path) -> Vec<PathBuf> {
+    let Some(dir) = project_dir(cwd) else {
+        return Vec::new();
+    };
+    let mut v: Vec<(SystemTime, PathBuf)> = Vec::new();
+    for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        if let Ok(t) = entry.metadata().and_then(|m| m.modified()) {
+            v.push((t, path));
+        }
+    }
+    v.sort_by(|a, b| b.0.cmp(&a.0));
+    v.into_iter().map(|(_, p)| p).collect()
+}
+
 /// Cheap liveness check from the file's mtime alone (a `stat`, no read).
 pub fn status_from_mtime(path: &Path) -> Status {
     match fs::metadata(path).and_then(|m| m.modified()) {
