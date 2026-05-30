@@ -17,8 +17,6 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use tungstenite::handshake::derive_accept_key;
 
-const SESSION: &str = "enxame";
-const SOCKET: &str = "enxame";
 
 #[derive(Serialize)]
 struct AgentDto {
@@ -183,8 +181,9 @@ fn bridge_pty(stream: TcpStream, win: &str) -> Result<()> {
     let pair = pty.openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })?;
 
     // Select the requested window, then attach this client to the session.
+    let (sock, sess) = (crate::tmux::socket(), crate::tmux::session());
     let script = format!(
-        "tmux -L {SOCKET} select-window -t {win} 2>/dev/null; exec tmux -L {SOCKET} attach -t {SESSION}"
+        "tmux -L {sock} select-window -t {win} 2>/dev/null; exec tmux -L {sock} attach -t {sess}"
     );
     let mut cmd = CommandBuilder::new("sh");
     cmd.arg("-c");
