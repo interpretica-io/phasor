@@ -92,7 +92,7 @@ fn run(terminal: &mut Term, initial_attach: Option<String>) -> Result<()> {
         // A failure must NOT kill the dashboard — show it in the status line.
         if let Some(window_id) = app.attach_to.take() {
             if let Err(e) = attach(terminal, &window_id) {
-                app.status = format!("could not open terminal: {e}");
+                app.note(format!("could not open terminal: {e}"));
             }
             continue;
         }
