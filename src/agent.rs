@@ -70,6 +70,9 @@ pub struct Agent {
     pub session_id: Option<String>,
     /// Instruction queued to auto-send when this agent next finishes a turn.
     pub pending: Option<String>,
+    /// Project (from `~/.enxame/projects.json`) this agent's cwd falls under.
+    pub project_name: Option<String>,
+    pub project_color: Option<String>,
     /// Resolved transcript file, once located.
     pub transcript: Option<PathBuf>,
     pub state: AgentState,
@@ -94,6 +97,8 @@ impl Agent {
             pids: Vec::new(),
             session_id: None,
             pending: None,
+            project_name: None,
+            project_color: None,
             transcript: None,
             state: AgentState::default(),
             activity: VecDeque::new(),
