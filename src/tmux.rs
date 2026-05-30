@@ -232,6 +232,35 @@ pub fn set_window_session(window_id: &str, session_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Queue an instruction to auto-send when this agent next finishes a turn
+/// (stored as a window option so any process can set/read it). Also resets the
+/// "already sent" marker so a freshly-queued instruction fires even if the
+/// agent is already finished/idle.
+pub fn set_window_pending(window_id: &str, instruction: &str) -> Result<()> {
+    run(&["set-option", "-w", "-t", window_id, "@enxame_pending", instruction])?;
+    let _ = run(&["set-option", "-w", "-t", window_id, "@enxame_sent", ""]);
+    Ok(())
+}
+
+/// The turn marker we last auto-sent an instruction for (so we send once per
+/// completed turn).
+pub fn get_window_sent(window_id: &str) -> Option<String> {
+    let out = run(&["display-message", "-p", "-t", window_id, "#{@enxame_sent}"]).ok()?;
+    let t = out.trim();
+    (!t.is_empty()).then(|| t.to_string())
+}
+
+pub fn set_window_sent(window_id: &str, marker: &str) {
+    let _ = run(&["set-option", "-w", "-t", window_id, "@enxame_sent", marker]);
+}
+
+/// Type `text` into a window and submit it (used to auto-send instructions).
+pub fn send_text(window_id: &str, text: &str) -> Result<()> {
+    run(&["send-keys", "-t", window_id, "-l", text])?;
+    run(&["send-keys", "-t", window_id, "Enter"])?;
+    Ok(())
+}
+
 /// List all agent windows in the enxame session (excludes nothing; the
 /// caller filters the `_enxame` placeholder if desired).
 pub fn list_windows() -> Result<Vec<Window>> {
@@ -262,6 +291,7 @@ pub struct WinInfo {
     pub cwd: std::path::PathBuf,
     pub pane_pid: u32,
     pub session_id: Option<String>,
+    pub pending: Option<String>,
 }
 
 /// List agent windows with the cwd and pane pid of their active pane. The
@@ -275,16 +305,17 @@ pub fn list_windows_with_cwd() -> Result<Vec<WinInfo>> {
         "-t",
         session(),
         "-F",
-        "#{window_id}\t#{window_name}\t#{pane_pid}\t#{@enxame_session}\t#{pane_current_path}",
+        "#{window_id}\t#{window_name}\t#{pane_pid}\t#{@enxame_session}\t#{pane_current_path}\t#{@enxame_pending}",
     ])?;
     let mut v = Vec::new();
     for line in out.lines() {
-        let mut parts = line.splitn(5, '\t');
+        let mut parts = line.splitn(6, '\t');
         let (Some(id), Some(name), Some(pid), Some(sid), Some(path)) =
             (parts.next(), parts.next(), parts.next(), parts.next(), parts.next())
         else {
             continue;
         };
+        let pending = parts.next().filter(|s| !s.is_empty()).map(|s| s.to_string());
         if name == "_enxame" {
             continue;
         }
@@ -293,6 +324,7 @@ pub fn list_windows_with_cwd() -> Result<Vec<WinInfo>> {
             cwd: std::path::PathBuf::from(path),
             pane_pid: pid.trim().parse().unwrap_or(0),
             session_id: (!sid.is_empty()).then(|| sid.to_string()),
+            pending,
         });
     }
     Ok(v)
