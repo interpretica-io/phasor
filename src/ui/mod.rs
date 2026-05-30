@@ -120,6 +120,9 @@ fn render_status(f: &mut Frame, area: Rect, app: &App) {
             Span::styled(format!("[{tag}] "), Style::new().fg(if a.openable() { Color::Rgb(110, 180, 240) } else { Color::DarkGray }).bg(bg)),
             Span::styled(format!("· {folders} dir{}", if folders == 1 { "" } else { "s" }), Style::new().fg(Color::DarkGray).bg(bg)),
         ];
+        if let Some(name) = &a.project_name {
+            spans.push(Span::styled(format!("  ◆ {name}"), Style::new().fg(Color::Rgb(150, 200, 240)).bg(bg)));
+        }
         if a.pending.is_some() {
             spans.push(Span::styled("  ↻ auto-instruct", Style::new().fg(Color::Rgb(235, 205, 110)).bg(bg)));
         }
@@ -128,7 +131,7 @@ fn render_status(f: &mut Frame, area: Rect, app: &App) {
         Line::from(Span::styled(" no agents", bar_bg))
     };
 
-    let keys = " n new · i instruct · 1-9 jump · ←↑↓→ move · ↵ open · d kill · q quit ";
+    let keys = " n new · i instruct · p projects · 1-9 jump · ↵ open · d kill · q quit ";
     let right = Line::from(Span::styled(keys, Style::new().fg(Color::Rgb(110, 120, 140)).bg(Color::Rgb(24, 28, 40))));
 
     f.render_widget(Paragraph::new(left), area);
