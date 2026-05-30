@@ -59,6 +59,17 @@ pub fn newest_session(cwd: &Path, not_before: SystemTime) -> Option<PathBuf> {
     best.map(|(_, p)| p)
 }
 
+/// Cheap liveness check from the file's mtime alone (a `stat`, no read).
+pub fn status_from_mtime(path: &Path) -> Status {
+    match fs::metadata(path).and_then(|m| m.modified()) {
+        Ok(mtime) => match mtime.elapsed() {
+            Ok(e) if e <= WORKING_WINDOW => Status::Working,
+            _ => Status::Idle,
+        },
+        Err(_) => Status::Unknown,
+    }
+}
+
 /// Read the last `TAIL_BYTES` of a file as a string (dropping a possibly
 /// partial first line).
 fn read_tail(path: &Path) -> Result<(String, SystemTime)> {
