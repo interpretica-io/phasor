@@ -2,7 +2,7 @@
 //!
 //! An agent is keyed by its cwd (the project root shown in the block diagram).
 //! It may be backed by one or more running `claude` processes (`pids`) and, if
-//! enxame launched it in its own tmux window, by an openable `window_id`.
+//! phasor launched it in its own tmux window, by an openable `window_id`.
 //! Agents without a tmux window are external claudes — monitored, dimmed, and
 //! not openable.
 
@@ -59,18 +59,18 @@ pub struct Agent {
     pub id: String,
     /// Working directory.
     pub cwd: PathBuf,
-    /// Stable tmux window id, if this agent lives in enxame's tmux session.
+    /// Stable tmux window id, if this agent lives in phasor's tmux session.
     /// `Some` => openable; `None` => external claude (dimmed, monitor-only).
     pub window_id: Option<String>,
     /// Running `claude` PIDs detected at this cwd (may be empty right after a
     /// managed launch, before claude has fully started).
     pub pids: Vec<u32>,
-    /// claude session id this agent runs (set when enxame launched it with
+    /// claude session id this agent runs (set when phasor launched it with
     /// `--session-id`), used to resolve its exact transcript file.
     pub session_id: Option<String>,
     /// Instruction queued to auto-send when this agent next finishes a turn.
     pub pending: Option<String>,
-    /// Project (from `~/.enxame/projects.json`) this agent's cwd falls under.
+    /// Project (from `~/.phasor/projects.json`) this agent's cwd falls under.
     pub project_name: Option<String>,
     pub project_color: Option<String>,
     /// Resolved transcript file, once located.
@@ -121,7 +121,7 @@ impl Agent {
         self.activity.back().copied().unwrap_or(0)
     }
 
-    /// Whether this agent's terminal can be opened (it's in enxame's tmux).
+    /// Whether this agent's terminal can be opened (it's in phasor's tmux).
     pub fn openable(&self) -> bool {
         self.window_id.is_some()
     }
