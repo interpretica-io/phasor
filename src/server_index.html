@@ -64,6 +64,34 @@
   #graph{position:fixed;inset:0;width:100%;height:100%;z-index:1;display:block}
 
   .hull{fill-opacity:.07;stroke-opacity:.35;stroke-width:2;stroke-linejoin:round;pointer-events:none}
+  .hulllabel{font:800 12px var(--sans);text-anchor:middle;letter-spacing:1.2px;text-transform:uppercase;
+    paint-order:stroke;stroke:var(--bg);stroke-width:4px;pointer-events:none;opacity:.92}
+
+  /* projects editor modal */
+  #projov{position:fixed;inset:0;background:var(--ovbg);backdrop-filter:blur(6px);display:none;
+    align-items:center;justify-content:center;z-index:60}
+  #projov.on{display:flex;animation:fade .2s ease}
+  #proj-wrap{width:min(760px,94vw);max-height:88vh;background:var(--termwrap);border:1px solid var(--termborder);
+    border-radius:16px;box-shadow:0 30px 90px rgba(0,0,0,.55);display:flex;flex-direction:column;overflow:hidden}
+  #proj-bar{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line);
+    font-size:14px;color:var(--txt);font-weight:700}
+  #proj-bar .x{margin-left:auto;cursor:pointer;color:var(--dim);padding:3px 10px;border-radius:8px}
+  #proj-bar .x:hover{background:var(--accent);color:#fff}
+  #proj-body{padding:16px 18px;overflow:auto}
+  .proj-help{color:var(--dim);font-size:12.5px;margin:0 0 14px}
+  .prow{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+  .prow input[type=text]{background:var(--glass);border:1px solid var(--glass-bd);color:var(--txt);
+    border-radius:8px;padding:8px 10px;font:13px var(--sans)}
+  .prow .pname{width:150px}
+  .prow .pprefix{flex:1;font-family:var(--mono);font-size:12px}
+  .prow input[type=color]{width:38px;height:34px;border:none;background:none;border-radius:8px;cursor:pointer;padding:0}
+  .prow .del{cursor:pointer;color:var(--dim);padding:6px 9px;border-radius:8px;user-select:none}
+  .prow .del:hover{background:rgba(224,85,102,.2);color:#e05566}
+  .proj-actions{display:flex;gap:10px;margin-top:14px;align-items:center}
+  .proj-actions button{cursor:pointer;background:var(--glass);border:1px solid var(--glass-bd);color:var(--txt);
+    border-radius:9px;padding:8px 16px;font:13px var(--sans)}
+  .proj-actions button.primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700}
+  #proj-msg{color:var(--dim);font-size:12px;margin-left:auto;min-height:16px}
   .link{stroke:var(--accent);stroke-opacity:.18;pointer-events:none}
   .linkhit{stroke:transparent;stroke-width:14;cursor:help;pointer-events:stroke}
   .node{cursor:default}
@@ -138,11 +166,30 @@
   </div>
   <div class="right">
     <span class="live"><span class="p"></span> live</span>
+    <button class="themebtn" onclick="openProjects()" title="projects">◆ projects</button>
     <button id="theme" class="themebtn" onclick="cycleTheme()" title="theme">◐</button>
   </div>
 </header>
 <div class="hint2">drag to rearrange · scroll to zoom · click a ⧉ tmux node to open it · right-click to queue an instruction</div>
 <div id="tip"></div>
+
+<div id="projov" onclick="if(event.target===this)closeProjects()">
+  <div id="proj-wrap">
+    <div id="proj-bar"><span>◆ projects · <span style="font-weight:400;color:var(--dim)">~/.enxame/projects.json</span></span>
+      <span class="x" onclick="closeProjects()">✕</span></div>
+    <div id="proj-body">
+      <p class="proj-help">Each project maps a directory <b>prefix</b> to a <b>name</b> and group <b>color</b>.
+        Agents whose working directory is under a prefix are grouped, colored, and labeled with the project name
+        (longest matching prefix wins). Changes apply within a few seconds.</p>
+      <div id="proj-rows"></div>
+      <div class="proj-actions">
+        <button onclick="addProjRow()">+ add project</button>
+        <button class="primary" onclick="saveProjects()">save</button>
+        <span id="proj-msg"></span>
+      </div>
+    </div>
+  </div>
+</div>
 
 <div id="ov" onclick="if(event.target===this)closeTerm()">
   <div id="term-wrap">
@@ -158,6 +205,8 @@ const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"
 function hue(s){let h=2166136261;for(const c of (s||" ")){h^=c.charCodeAt(0);h=(h*16777619)>>>0;}return h%360;}
 // folders arrive as full paths; show just the basename.
 const base=p=>(p||"").replace(/\/+$/,"").split("/").pop()||p;
+// normalize a hex color to "#rrggbb", or null if not a valid 6-digit hex.
+const normHex=c=>{ if(!c) return null; const h=String(c).replace(/^#/,""); return /^[0-9a-fA-F]{6}$/.test(h)?"#"+h:null; };
 
 // ---- theme ----
 const TK="enxame-theme";
@@ -177,7 +226,7 @@ matchMedia("(prefers-color-scheme: light)").addEventListener("change",applyTheme
 // ---- D3 force graph ----
 const svg=d3.select("#graph");
 const root=svg.append("g");
-const gHull=root.append("g"), gLink=root.append("g"), gHit=root.append("g"), gNode=root.append("g");
+const gHull=root.append("g"), gHullLabel=root.append("g"), gLink=root.append("g"), gHit=root.append("g"), gNode=root.append("g");
 let W=innerWidth,H=innerHeight;
 svg.call(d3.zoom().scaleExtent([.35,3]).on("zoom",e=>root.attr("transform",e.transform)));
 
@@ -190,9 +239,9 @@ function clusterForce(strength){
   let nodes=[];
   function f(alpha){
     const cen={};
-    for(const n of nodes){ if(n.cluster<0) continue; const c=cen[n.cluster]||(cen[n.cluster]={x:0,y:0,n:0}); c.x+=n.x; c.y+=n.y; c.n++; }
+    for(const n of nodes){ if(n.gid<0) continue; const c=cen[n.gid]||(cen[n.gid]={x:0,y:0,n:0}); c.x+=n.x; c.y+=n.y; c.n++; }
     for(const k in cen){ cen[k].x/=cen[k].n; cen[k].y/=cen[k].n; }
-    for(const n of nodes){ if(n.cluster<0) continue; const c=cen[n.cluster];
+    for(const n of nodes){ if(n.gid<0) continue; const c=cen[n.gid];
       n.vx+=(c.x-n.x)*strength*alpha; n.vy+=(c.y-n.y)*strength*alpha; }
   }
   f.initialize=n=>nodes=n;
@@ -215,7 +264,8 @@ const seqs=new Map();  // agent id -> last completion seq
 function build(agents){
   const N=agents.map((a,i)=>({id:a.id,i,label:a.label,status:a.status,load:a.load||0,
       openable:a.openable,wid:a.wid,phrase:a.phrase,todos:a.todos,procs:a.procs,seq:a.seq,
-      hue:hue(a.phrase),folders:a.folders||[],pend:a.pending||null}));
+      hue:hue(a.phrase),folders:a.folders||[],pend:a.pending||null,
+      proj:a.project||null,pcolor:a.pcolor||null}));
   N.forEach(n=>{const p=pos.get(n.id);if(p){n.x=p.x;n.y=p.y;n.vx=p.vx;n.vy=p.vy;}});
 
   // Links between agents that share working folders (weight = #shared).
@@ -237,6 +287,20 @@ function build(agents){
     cid++; });
   L.forEach(l=>{ l.hue=((comp.get(l.source)||0)*137.5)%360; });
   N.forEach(n=>{ n.cluster=comp.has(n.id)?comp.get(n.id):-1; });
+
+  // Group nodes for coloring + contours: a configured project (matched by
+  // directory prefix, server-side) takes precedence over the folder-overlap
+  // cluster — projects carry an explicit color and a display name.
+  const gids=new Map(); let gn=0;
+  const gid=k=>{ if(!gids.has(k)) gids.set(k,gn++); return gids.get(k); };
+  N.forEach(n=>{
+    if(n.proj){ n.gid=gid("p:"+n.proj); n.gcolor=normHex(n.pcolor)||`hsl(${(n.gid*137.5)%360},65%,55%)`; n.glabel=n.proj; }
+    else if(n.cluster>=0){ n.gid=gid("c:"+n.cluster); n.gcolor=`hsl(${(n.cluster*137.5)%360},65%,55%)`; n.glabel=null; }
+    else { n.gid=-1; n.gcolor=null; n.glabel=null; }
+  });
+  const byId=new Map(N.map(n=>[n.id,n]));
+  L.forEach(l=>{ const s=byId.get(l.source), t=byId.get(l.target);
+    l.color=(s&&t&&s.gid>=0&&s.gid===t.gid&&s.gcolor)?s.gcolor:`hsl(${l.hue.toFixed(0)},70%,60%)`; });
   return {N,L};
 }
 
@@ -251,7 +315,7 @@ function update(agents){
   const lk=gLink.selectAll("line").data(links,lkey);
   lk.exit().remove();
   lk.enter().append("line").attr("class","link").merge(lk)
-    .attr("stroke",d=>`hsl(${(d.hue||210).toFixed(0)},70%,${light?"42%":"63%"})`)
+    .attr("stroke",d=>d.color||`hsl(${(d.hue||210).toFixed(0)},70%,${light?"42%":"63%"})`)
     .attr("stroke-opacity",d=>Math.min(.6,.2+d.w*.13))
     .attr("stroke-width",d=>1+Math.min(3.5,d.w*.7));
   // wide invisible hit area so the thin line is easy to hover
@@ -320,27 +384,37 @@ function update(agents){
   else sim.alphaTarget(0);
 }
 
-function hullPath(members){
+function hullGeom(members){
   const pts=[];
   for(const m of members){
     const pad=R(m)+34;
     for(let a=0;a<Math.PI*2;a+=Math.PI/5) pts.push([m.x+Math.cos(a)*pad, m.y+Math.sin(a)*pad]);
   }
   const h=d3.polygonHull(pts);
-  return h ? d3.line().curve(d3.curveCatmullRomClosed)(h) : null;
+  if(!h) return null;
+  let top=h[0]; for(const p of h) if(p[1]<top[1]) top=p;   // highest point, for the label
+  return {d:d3.line().curve(d3.curveCatmullRomClosed)(h), tx:top[0], ty:top[1]};
 }
 function drawHulls(){
   const groups={};
-  for(const n of nodes){ if(n.cluster>=0 && n.x!=null){ (groups[n.cluster]||(groups[n.cluster]=[])).push(n); } }
-  const hulls=Object.entries(groups).filter(([,m])=>m.length>=2)
-    .map(([cid,m])=>({cid:+cid, hue:((+cid)*137.5)%360, d:hullPath(m)}))
-    .filter(h=>h.d);
-  const sel=gHull.selectAll("path").data(hulls,h=>h.cid);
+  for(const n of nodes){ if(n.gid>=0 && n.x!=null){ (groups[n.gid]||(groups[n.gid]=[])).push(n); } }
+  // Project groups (named) draw a contour even for a single agent; anonymous
+  // folder-clusters need at least two members to be worth outlining.
+  const hulls=Object.entries(groups).map(([gid,m])=>{
+    const lead=m[0]; if(m.length<(lead.glabel?1:2)) return null;
+    const g=hullGeom(m); if(!g) return null;
+    return {gid:+gid, color:lead.gcolor||`hsl(${((+gid)*137.5)%360},65%,55%)`, label:lead.glabel, d:g.d, tx:g.tx, ty:g.ty};
+  }).filter(Boolean);
+  const sel=gHull.selectAll("path").data(hulls,h=>h.gid);
   sel.exit().remove();
   sel.enter().append("path").attr("class","hull").merge(sel)
-    .attr("d",h=>h.d)
-    .attr("stroke",h=>`hsl(${h.hue},70%,60%)`)
-    .attr("fill",h=>`hsl(${h.hue},70%,55%)`);
+    .attr("d",h=>h.d).attr("stroke",h=>h.color).attr("fill",h=>h.color);
+  // project name floating above its contour
+  const labeled=hulls.filter(h=>h.label);
+  const lb=gHullLabel.selectAll("text").data(labeled,h=>h.gid);
+  lb.exit().remove();
+  lb.enter().append("text").attr("class","hulllabel").merge(lb)
+    .attr("x",h=>h.tx).attr("y",h=>h.ty-8).attr("fill",h=>h.color).text(h=>h.label);
 }
 function ticked(){
   drawHulls();
@@ -402,6 +476,45 @@ function instruct(d){
   fetch("/api/instruct?w="+encodeURIComponent(d.wid),{method:"POST",body:t}).catch(()=>{});
 }
 
+// ---- projects editor (shared config, mirrors the TUI's `p` key) ----
+function openProjects(){
+  document.getElementById("projov").classList.add("on");
+  setProjMsg("loading…");
+  fetch("/api/projects",{cache:"no-store"}).then(r=>r.json())
+    .then(rows=>{ renderProjRows(rows||[]); setProjMsg(""); })
+    .catch(()=>{ renderProjRows([]); setProjMsg("failed to load"); });
+}
+function closeProjects(){ document.getElementById("projov").classList.remove("on"); }
+function setProjMsg(t){ document.getElementById("proj-msg").textContent=t; }
+function renderProjRows(rows){
+  const box=document.getElementById("proj-rows"); box.innerHTML="";
+  if(!rows.length) rows=[{name:"",prefix:"",color:"#7aa2f7"}];
+  rows.forEach(r=>box.appendChild(projRow(r)));
+}
+function projRow(r){
+  const div=document.createElement("div"); div.className="prow";
+  const color=normHex(r.color)||"#7aa2f7";
+  div.innerHTML=`<input type="text" class="pname" placeholder="name" value="${esc(r.name||"")}">`+
+    `<input type="text" class="pprefix" placeholder="/abs/dir/prefix" value="${esc(r.prefix||"")}">`+
+    `<input type="color" value="${color}" title="group color">`+
+    `<span class="del" title="remove">✕</span>`;
+  div.querySelector(".del").onclick=()=>div.remove();
+  return div;
+}
+function addProjRow(){ document.getElementById("proj-rows").appendChild(projRow({name:"",prefix:"",color:"#7aa2f7"})); }
+function saveProjects(){
+  const rows=[...document.querySelectorAll("#proj-rows .prow")].map(d=>({
+    name:d.querySelector(".pname").value.trim(),
+    prefix:d.querySelector(".pprefix").value.trim(),
+    color:d.querySelector('input[type=color]').value
+  })).filter(r=>r.name||r.prefix);
+  setProjMsg("saving…");
+  fetch("/api/projects",{method:"POST",body:JSON.stringify(rows)})
+    .then(r=>r.ok?r.text():r.text().then(t=>Promise.reject(t||r.status)))
+    .then(()=>{ setProjMsg("saved ✓"); tick(); setTimeout(closeProjects,700); })
+    .catch(e=>setProjMsg("error: "+e));
+}
+
 // ---- xterm.js terminal ----
 var term=null,fit=null,ws=null;
 function openTerm(wid,label){
@@ -433,7 +546,11 @@ function onWinResize(){if(fit)fit.fit();}
 function closeTerm(){removeEventListener("resize",onWinResize);
   if(ws){try{ws.close();}catch(e){}ws=null;}if(term){term.dispose();term=null;}
   document.getElementById("ov").classList.remove("on");}
-addEventListener("keydown",e=>{if(e.key==="Escape"&&document.getElementById("ov").classList.contains("on"))closeTerm();});
+addEventListener("keydown",e=>{
+  if(e.key!=="Escape")return;
+  if(document.getElementById("ov").classList.contains("on"))closeTerm();
+  else if(document.getElementById("projov").classList.contains("on"))closeProjects();
+});
 </script>
 </body>
 </html>
