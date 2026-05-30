@@ -39,6 +39,9 @@ pub struct AgentState {
     /// Identifier (uuid) of the most recent completed turn (`stop_reason ==
     /// "end_turn"`). A change in this marks a freshly completed task.
     pub final_marker: Option<String>,
+    /// Whether the last finished turn's answer contained the
+    /// "FINISHED COMPLETELY" sentinel (stops a repeating auto-instruction).
+    pub final_says_done: bool,
 }
 
 /// Folders that are Claude's own scaffolding rather than the agent's work —
@@ -65,6 +68,8 @@ pub struct Agent {
     /// claude session id this agent runs (set when enxame launched it with
     /// `--session-id`), used to resolve its exact transcript file.
     pub session_id: Option<String>,
+    /// Instruction queued to auto-send when this agent next finishes a turn.
+    pub pending: Option<String>,
     /// Resolved transcript file, once located.
     pub transcript: Option<PathBuf>,
     pub state: AgentState,
@@ -88,6 +93,7 @@ impl Agent {
             window_id: None,
             pids: Vec::new(),
             session_id: None,
+            pending: None,
             transcript: None,
             state: AgentState::default(),
             activity: VecDeque::new(),
