@@ -192,7 +192,7 @@ const pos=new Map();   // id -> {x,y,vx,vy} preserved across refreshes
 const seqs=new Map();  // agent id -> last completion seq
 
 function build(agents){
-  const N=agents.map((a,i)=>({id:a.cwd,i,label:a.label,status:a.status,load:a.load||0,
+  const N=agents.map((a,i)=>({id:a.id,i,label:a.label,status:a.status,load:a.load||0,
       openable:a.openable,wid:a.wid,phrase:a.phrase,todos:a.todos,procs:a.procs,seq:a.seq,
       hue:hue(a.phrase),folders:a.folders||[]}));
   N.forEach(n=>{const p=pos.get(n.id);if(p){n.x=p.x;n.y=p.y;n.vx=p.vx;n.vy=p.vy;}});
@@ -203,7 +203,7 @@ function build(agents){
     const fa=new Set(agents[i].folders||[]); if(!fa.size) continue;
     for(let j=i+1;j<agents.length;j++){
       const sh=[]; for(const f of (agents[j].folders||[])) if(fa.has(f)) sh.push(f);
-      if(sh.length) L.push({source:agents[i].cwd,target:agents[j].cwd,w:sh.length,shared:sh});
+      if(sh.length) L.push({source:agents[i].id,target:agents[j].id,w:sh.length,shared:sh});
     }
   }
   // Colour each cluster (connected component) with its own hue.
@@ -264,7 +264,7 @@ function update(agents){
     g.select(".core").attr("r",r);
     g.select(".burst").attr("stroke","none");
     g.select(".idx").text(d.i+1);
-    g.select(".lbl").attr("y",r+22).text(d.label.length>26?d.label.slice(0,25)+"…":d.label);
+    g.select(".lbl").attr("y",r+22).text(d.label);
     g.style("--h",d.hue);
     // folder column hanging straight below the node
     const fl=g.selectAll("text.frow").data(d.folders);
@@ -276,15 +276,15 @@ function update(agents){
 
   // completion burst
   agents.forEach(a=>{
-    const prev=seqs.get(a.cwd);
+    const prev=seqs.get(a.id);
     if(prev!==undefined && a.seq>prev){
-      const g=gNode.selectAll("g.node").filter(d=>d.id===a.cwd);
+      const g=gNode.selectAll("g.node").filter(d=>d.id===a.id);
       g.classed("done",false); g.node()&&void g.node().offsetWidth;
       g.select(".burst").attr("stroke","hsl("+hue(a.phrase)+",90%,62%)").attr("stroke-width",3).attr("fill","none");
       g.classed("done",true);
       setTimeout(()=>g.classed("done",false),3000);
     }
-    seqs.set(a.cwd,a.seq);
+    seqs.set(a.id,a.seq);
   });
 
   sim.nodes(nodes);
