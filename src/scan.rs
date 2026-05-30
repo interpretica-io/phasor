@@ -37,8 +37,8 @@ struct Node {
     pending: Option<String>,
 }
 
-/// Discover all nodes: each enxame tmux window is its own node; each external
-/// claude (one not running inside an enxame window) is its own node.
+/// Discover all nodes: each phasor tmux window is its own node; each external
+/// claude (one not running inside an phasor window) is its own node.
 fn discover_nodes() -> Vec<Node> {
     let windows = tmux::list_windows_with_cwd().unwrap_or_default();
     let pane_pids: HashSet<u32> = windows.iter().map(|w| w.pane_pid).collect();
@@ -61,7 +61,7 @@ fn discover_nodes() -> Vec<Node> {
             pending: w.pending.clone(),
         });
     }
-    // One node per external claude (not inside any enxame window).
+    // One node per external claude (not inside any phasor window).
     for p in &claudes {
         if pane_pids.contains(&p.pid) || pane_pids.contains(&p.ppid) {
             continue;
@@ -132,7 +132,7 @@ fn node_to_agent(n: Node) -> Agent {
 fn reparse(agent: &mut Agent) -> bool {
     let prev_marker = agent.state.final_marker.clone();
     let prev_dirs = agent.state.work_dirs.clone();
-    // Prefer this agent's own session file (when enxame launched it with a known
+    // Prefer this agent's own session file (when phasor launched it with a known
     // session id); otherwise fall back to the newest session in the cwd.
     agent.transcript = agent
         .session_id
@@ -165,7 +165,7 @@ fn reparse(agent: &mut Agent) -> bool {
 
 /// If the agent has a queued instruction and has finished a turn we haven't
 /// acted on yet, either send the (repeating) instruction or — if it declared
-/// it's fully done — stop. Idempotent per turn via the `@enxame_sent` marker.
+/// it's fully done — stop. Idempotent per turn via the `@phasor_sent` marker.
 fn try_autosend(agent: &mut Agent) {
     let (Some(pending), Some(wid), Some(marker)) = (
         agent.pending.clone(),
@@ -333,7 +333,7 @@ fn run_scanner(tx: Sender<Vec<Agent>>) {
         }
 
         // Label each agent's tmux window with its task title (so the tmux
-        // status bar shows meaningful names, not "1 enxame 2 enxame"). Only
+        // status bar shows meaningful names, not "1 phasor 2 phasor"). Only
         // rename when it actually changes.
         for agent in agents.values() {
             if let (Some(wid), Some(title)) = (&agent.window_id, agent.state.title.as_ref()) {
