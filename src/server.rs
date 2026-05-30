@@ -47,18 +47,21 @@ fn to_dto(a: &Agent) -> AgentDto {
     // Full (absolute) paths — clustering/overlap must compare canonical paths,
     // not basenames (two unrelated `src` dirs are not the same folder). The UI
     // derives the short label from the basename for display.
+    // Open/working folders the agent has: its cwd (always), any `/add-dir`
+    // dirs, and the subdirs it edits in. The cwd is kept so the list is never
+    // empty (every agent has at least one open folder).
     let mut seen = HashSet::new();
     let folders = a
         .state
         .work_dirs
         .iter()
-        .filter(|d| **d != a.cwd)
         .filter(|d| {
             d.file_name()
                 .map(|n| !is_noise_folder(&n.to_string_lossy()))
                 .unwrap_or(true)
         })
         .map(|d| d.to_string_lossy().into_owned())
+        .filter(|p| p.starts_with('/') && !p.contains('"'))
         .filter(|p| seen.insert(p.clone()))
         .collect();
     AgentDto {
