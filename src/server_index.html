@@ -176,13 +176,15 @@ const R=d=>16+(d.load||0)/100*26;          // agent radius by load
 // Collision reserves vertical room for the folder column hanging below.
 const COLL=d=>R(d)+40+(d.folders?d.folders.length:0)*15;
 const sim=d3.forceSimulation()
-  .force("charge",d3.forceManyBody().strength(-1100).distanceMax(900))
+  .force("charge",d3.forceManyBody().strength(-1100).distanceMax(1100))
+  .force("link",d3.forceLink().id(d=>d.id)
+     .distance(d=>Math.max(120,250-d.w*28)).strength(d=>Math.min(.55,.14+d.w*.12)))
   .force("collide",d3.forceCollide().radius(COLL).strength(1))
-  .force("x",d3.forceX(()=>W/2).strength(.035))
-  .force("y",d3.forceY(()=>H/2).strength(.045))
+  .force("x",d3.forceX(()=>W/2).strength(.03))
+  .force("y",d3.forceY(()=>H/2).strength(.04))
   .on("tick",ticked);
 
-let nodes=[];
+let nodes=[],links=[],lastLinks=-1;
 const pos=new Map();   // id -> {x,y,vx,vy} preserved across refreshes
 const seqs=new Map();  // agent id -> last completion seq
 
@@ -191,13 +193,42 @@ function build(agents){
       openable:a.openable,wid:a.wid,phrase:a.phrase,todos:a.todos,procs:a.procs,seq:a.seq,
       hue:hue(a.phrase),folders:a.folders||[]}));
   N.forEach(n=>{const p=pos.get(n.id);if(p){n.x=p.x;n.y=p.y;n.vx=p.vx;n.vy=p.vy;}});
-  return N;
+
+  // Links between agents that share working folders (weight = #shared).
+  const L=[];
+  for(let i=0;i<agents.length;i++){
+    const fa=new Set(agents[i].folders||[]); if(!fa.size) continue;
+    for(let j=i+1;j<agents.length;j++){
+      let w=0; for(const f of (agents[j].folders||[])) if(fa.has(f)) w++;
+      if(w>0) L.push({source:agents[i].cwd,target:agents[j].cwd,w});
+    }
+  }
+  // Colour each cluster (connected component) with its own hue.
+  const adj=new Map(); N.forEach(n=>adj.set(n.id,[]));
+  L.forEach(l=>{adj.get(l.source).push(l.target);adj.get(l.target).push(l.source);});
+  const comp=new Map(); let cid=0;
+  N.forEach(n=>{ if(comp.has(n.id)||!adj.get(n.id).length) return;
+    const st=[n.id]; comp.set(n.id,cid);
+    while(st.length){const x=st.pop(); for(const y of adj.get(x)) if(!comp.has(y)){comp.set(y,cid);st.push(y);}}
+    cid++; });
+  L.forEach(l=>{ l.hue=((comp.get(l.source)||0)*137.5)%360; });
+  N.forEach(n=>{ n.cluster=comp.has(n.id)?comp.get(n.id):-1; });
+  return {N,L};
 }
 
 function update(agents){
-  const N=build(agents);
+  const {N,L}=build(agents);
   const topoChanged = N.length!==nodes.length || N.some(n=>!pos.has(n.id));
-  nodes=N;
+  nodes=N; links=L;
+
+  // overlap links
+  const light=resolved()==="light";
+  const lk=gLink.selectAll("line").data(links,d=>(d.source.id||d.source)+"|"+(d.target.id||d.target));
+  lk.exit().remove();
+  lk.enter().append("line").attr("class","link").merge(lk)
+    .attr("stroke",d=>`hsl(${(d.hue||210).toFixed(0)},70%,${light?"42%":"63%"})`)
+    .attr("stroke-opacity",d=>Math.min(.6,.2+d.w*.13))
+    .attr("stroke-width",d=>1+Math.min(3.5,d.w*.7));
 
   const nd=gNode.selectAll("g.nodeg").data(nodes,d=>d.id);
   nd.exit().remove();
@@ -247,7 +278,9 @@ function update(agents){
   });
 
   sim.nodes(nodes);
-  if(topoChanged) sim.alpha(.6).restart(); else sim.alphaTarget(0);
+  sim.force("link").links(links);
+  if(topoChanged || links.length!==lastLinks){ lastLinks=links.length; sim.alpha(.6).restart(); }
+  else sim.alphaTarget(0);
 }
 
 function ticked(){
