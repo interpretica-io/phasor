@@ -11,6 +11,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Widget};
 
 const PHRASE_LEN: usize = 60;
+/// How long the "task completed" highlight lingers.
+const COMPLETE_FLASH_SECS: u64 = 3;
 
 /// Large, glanceable 3-row "seven-segment" digits for the quick-jump number.
 const BIG_DIGITS: [[&str; 3]; 10] = [
@@ -128,6 +130,15 @@ fn draw_node(
         }
     }
 
+    // Just finished a task: a red stripe down the right edge of the cell for 3s.
+    if agent.just_completed(COMPLETE_FLASH_SECS) {
+        let red = Style::new().fg(Color::Rgb(240, 70, 70)).add_modifier(Modifier::BOLD);
+        let x = region.right() as i32 - 1;
+        for y in region.y..region.bottom() {
+            put_str(buf, region, x, y as i32, "▌", red);
+        }
+    }
+
     Some(HitBox {
         idx,
         left: card.x,
@@ -212,9 +223,24 @@ fn draw_card(
     };
     put_str(buf, in_card, info_x + 2, cy, &name, name_style);
 
-    // row 1: progress bar (always present)
+    // row 1: progress bar (always present) + activity load %, right-aligned
     if in_card.height >= 2 {
         draw_progress(buf, in_card, info_x, cy + 1, info_w, agent.state.todos, external);
+        let load = agent.load();
+        let s = format!("⚡{load}%");
+        // ⚡ renders 2 cells wide; account for that when right-aligning.
+        let disp = 2 + format!("{load}%").chars().count() as i32;
+        let lx = in_card.right() as i32 - disp;
+        let lc = if external {
+            Color::Rgb(90, 95, 110)
+        } else if load >= 66 {
+            Color::Rgb(240, 150, 90)
+        } else if load >= 25 {
+            Color::Rgb(225, 200, 120)
+        } else {
+            Color::Rgb(110, 120, 140)
+        };
+        put_str(buf, in_card, lx, cy + 1, &s, Style::new().fg(lc));
     }
 
     // row 2: beginning of last phrase
