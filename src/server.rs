@@ -6,7 +6,7 @@
 //! driven live in the browser via xterm.js.
 
 use crate::agent::{is_noise_folder, Agent, Status};
-use crate::scan;
+use crate::{config, scan};
 use anyhow::{anyhow, Result};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::Serialize;
@@ -34,6 +34,9 @@ struct AgentDto {
     activity: Vec<u8>,
     seq: u64,
     pending: Option<String>,
+    /// Project (from `~/.enxame/projects.json`) the agent's cwd falls under.
+    project: Option<String>,
+    pcolor: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -84,6 +87,8 @@ fn to_dto(a: &Agent) -> AgentDto {
         activity: a.activity.iter().copied().collect(),
         seq: a.completions,
         pending: a.pending.clone(),
+        project: a.project_name.clone(),
+        pcolor: a.project_color.clone(),
     }
 }
 
@@ -152,6 +157,25 @@ fn handle(mut stream: TcpStream, latest: Shared) -> Result<()> {
         return Ok(());
     }
 
+    // Save the projects config (body = JSON array of {name, prefix, color}).
+    if method == "POST" && path == "/api/projects" {
+        let len = headers
+            .get("content-length")
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(0)
+            .min(65536);
+        let mut body = vec![0u8; len];
+        let _ = stream.read_exact(&mut body);
+        match serde_json::from_slice::<Vec<config::Project>>(&body) {
+            Ok(projects) => match config::save(&projects) {
+                Ok(()) => write_http(stream, "200 OK", "text/plain", b"ok"),
+                Err(e) => write_http(stream, "500 Internal Server Error", "text/plain", e.to_string().as_bytes()),
+            },
+            Err(e) => write_http(stream, "400 Bad Request", "text/plain", format!("invalid json: {e}").as_bytes()),
+        }
+        return Ok(());
+    }
+
     match path {
         "/" | "/index.html" => write_http(stream, "200 OK", "text/html; charset=utf-8", INDEX_HTML.as_bytes()),
         "/api/agents" => {
@@ -165,6 +189,10 @@ fn handle(mut stream: TcpStream, latest: Shared) -> Result<()> {
                 };
                 serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into())
             };
+            write_http(stream, "200 OK", "application/json", body.as_bytes())
+        }
+        "/api/projects" => {
+            let body = serde_json::to_string(&config::load()).unwrap_or_else(|_| "[]".into());
             write_http(stream, "200 OK", "application/json", body.as_bytes())
         }
         _ => write_http(stream, "404 Not Found", "text/plain", b"not found"),
