@@ -44,7 +44,7 @@ struct AgentDto {
     activity: Vec<u8>,
     seq: u64,
     pending: Option<String>,
-    /// Project (from `~/.enxame/projects.json`) the agent's cwd falls under.
+    /// Project (from `~/.phasor/projects.json`) the agent's cwd falls under.
     project: Option<String>,
     pcolor: Option<String>,
 }
@@ -145,7 +145,7 @@ pub fn serve(port: u16) -> Result<()> {
         let listener = tokio::net::TcpListener::bind(&addr)
             .await
             .map_err(|e| anyhow!("failed to bind {addr}: {e}"))?;
-        println!("enxame web dashboard → http://{addr}");
+        println!("phasor web dashboard → http://{addr}");
         axum::serve(listener, app)
             .await
             .map_err(|e| anyhow!("server error: {e}"))
