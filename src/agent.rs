@@ -47,10 +47,14 @@ pub fn is_noise_folder(name: &str) -> bool {
     matches!(name, "memory" | ".claude")
 }
 
-/// One Claude project node.
+/// One agent node — a single tmux window or a single external claude process
+/// (agents are NOT grouped by folder).
 #[derive(Debug, Clone)]
 pub struct Agent {
-    /// Working directory — the project root and stable identity key.
+    /// Stable node identity: the tmux window id (e.g. `@3`) for managed agents,
+    /// or `pid:<n>` for external claude processes.
+    pub id: String,
+    /// Working directory.
     pub cwd: PathBuf,
     /// Stable tmux window id, if this agent lives in enxame's tmux session.
     /// `Some` => openable; `None` => external claude (dimmed, monitor-only).
@@ -58,6 +62,9 @@ pub struct Agent {
     /// Running `claude` PIDs detected at this cwd (may be empty right after a
     /// managed launch, before claude has fully started).
     pub pids: Vec<u32>,
+    /// claude session id this agent runs (set when enxame launched it with
+    /// `--session-id`), used to resolve its exact transcript file.
+    pub session_id: Option<String>,
     /// Resolved transcript file, once located.
     pub transcript: Option<PathBuf>,
     pub state: AgentState,
@@ -74,11 +81,13 @@ pub struct Agent {
 }
 
 impl Agent {
-    pub fn new(cwd: PathBuf) -> Self {
+    pub fn new(id: String, cwd: PathBuf) -> Self {
         Self {
+            id,
             cwd,
             window_id: None,
             pids: Vec::new(),
+            session_id: None,
             transcript: None,
             state: AgentState::default(),
             activity: VecDeque::new(),
