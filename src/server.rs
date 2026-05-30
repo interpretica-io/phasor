@@ -5,7 +5,7 @@
 //! WebSocket bridged to a PTY running `tmux attach` — so openable agents can be
 //! driven live in the browser via xterm.js.
 
-use crate::agent::{Agent, Status};
+use crate::agent::{is_noise_folder, Agent, Status};
 use crate::scan;
 use anyhow::{anyhow, Result};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
@@ -51,6 +51,7 @@ fn to_dto(a: &Agent) -> AgentDto {
         .iter()
         .filter(|d| **d != a.cwd)
         .filter_map(|d| d.file_name().map(|s| s.to_string_lossy().into_owned()))
+        .filter(|n| !is_noise_folder(n))
         .filter(|n| seen.insert(n.clone()))
         .collect();
     AgentDto {
