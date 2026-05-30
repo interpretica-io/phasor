@@ -1,4 +1,4 @@
-//! Project config at `~/.enxame/projects.json`.
+//! Project config at `~/.phasor/projects.json`.
 //!
 //! A project maps a directory **prefix** to a display **name** and group
 //! **color**. An agent whose cwd is under a project's prefix is shown with that
@@ -21,7 +21,7 @@ pub struct Project {
 
 /// Path to the projects config file.
 pub fn path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".enxame/projects.json"))
+    dirs::home_dir().map(|h| h.join(".phasor/projects.json"))
 }
 
 /// Load the configured projects (empty list if missing/invalid).
@@ -33,7 +33,7 @@ pub fn load() -> Vec<Project> {
     serde_json::from_str(&text).unwrap_or_default()
 }
 
-/// Save projects, creating `~/.enxame` if needed.
+/// Save projects, creating `~/.phasor` if needed.
 pub fn save(projects: &[Project]) -> Result<()> {
     let p = path().context("no home dir")?;
     if let Some(dir) = p.parent() {
