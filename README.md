@@ -76,8 +76,15 @@ enxame serve 9000       # custom port
 A parallel **graphical dashboard in the browser**, backed by the exact same
 discovery as the TUI (shared `scan` module: process discovery + transcript file
 watchers). It serves a self-contained dark UI that auto-refreshes every 1.5 s
-and a JSON API at `/api/agents`. Read-only today (mirrors the same cards:
-number, status, progress, last phrase, folder chips, tmux/external badge).
+and a JSON API at `/api/agents`. Each agent shows its number, status, progress,
+last phrase, and an arrow tree of touched folders (`├──▶`), mirroring the TUI.
+
+**Live terminals in the browser.** Click an openable `⧉ tmux` agent and its
+terminal opens right in the page via [xterm.js](https://xtermjs.org) over a
+WebSocket bridged to a PTY running `tmux attach`. Type, resize, the lot. Close
+the overlay (or `Ctrl-Q` / prefix + d inside) to detach; the agent keeps
+running. The server binds `127.0.0.1` only — a browser terminal is full shell
+access, so it stays local.
 
 ### Spawning agents from outside
 
