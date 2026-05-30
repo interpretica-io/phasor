@@ -31,8 +31,17 @@ line-drawn arrows fanning out to the folders it has touched (names only).
 The big seven-segment number on the left is the **quick-jump key** (press it to
 select). `●` (green) = openable agent working in enxame's tmux, `○` (amber) =
 idle; an external claude you can only monitor is dimmed grey. Each card has a
-progress bar (filled from the agent's todo list, empty when unknown). Arrows
-point to folder **names**, never full paths. The selected card is highlighted.
+progress bar (filled from the agent's todo list, empty when unknown) and an
+**activity load** `⚡N%` — how hard the agent is working, derived from how fast
+its transcript is growing (sampled every second). Arrows point to folder
+**names**, never full paths. The selected card is highlighted.
+
+The web dashboard shows the same load as a live **sparkline graph** per agent.
+
+**Task-completion highlight.** When an agent finishes a task (a final
+`end_turn` answer), the TUI marks it with a red stripe down the right edge for
+3 s, and the web card celebrates with a pop + a gradient shimmer tinted to the
+hue of that last answer, then settles back.
 
 ## Requirements
 
