@@ -32,6 +32,9 @@ pub struct App {
     pub should_quit: bool,
     /// When set, the main loop should suspend the TUI and attach this window.
     pub attach_to: Option<String>,
+    /// When set, the main loop should suspend the TUI and open the projects
+    /// config (`~/.enxame/projects.json`) in `$EDITOR`.
+    pub edit_projects: bool,
     /// Selection is tracked by node id so it stays put as the list is rebuilt.
     selected_id: Option<String>,
     /// Fresh agent snapshots from the background scanner.
@@ -50,6 +53,7 @@ impl App {
             status_at: Instant::now(),
             should_quit: false,
             attach_to: None,
+            edit_projects: false,
             selected_id: None,
             rx,
         }
@@ -131,6 +135,8 @@ impl App {
             }
             KeyCode::Enter => self.open_selected(),
             KeyCode::Char('d') => self.kill_selected(),
+            // Edit the projects config (~/.enxame/projects.json) in $EDITOR.
+            KeyCode::Char('p') => self.edit_projects = true,
             // Queue an instruction to auto-send when this agent finishes.
             KeyCode::Char('i') => match self.agents.get(self.selected) {
                 Some(a) if a.openable() => self.mode = Mode::Instruct { input: String::new() },
