@@ -1,25 +1,14 @@
 //! Application state and input handling (UI-framework agnostic).
 //!
-//! Discovery (ps + lsof + transcript parsing) is comparatively slow, so it runs
-//! on a background thread and streams fresh agent snapshots to the UI over a
-//! channel. The main loop never blocks on it — keystrokes stay responsive.
+//! Discovery runs on a background thread (see [`crate::scan`]) and streams
+//! fresh agent snapshots over a channel; the main loop never blocks on it.
 
 use crate::agent::Agent;
-use crate::{discover, transcript, tmux};
+use crate::{scan, tmux};
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use notify::{RecursiveMode, Watcher};
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::ffi::OsString;
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::thread;
-use std::time::{Duration, Instant, SystemTime};
-
-/// How often the process/window set is re-checked (cheap: ps + lsof + tmux, no
-/// transcript reads). Transcript content is refreshed by file-watch events, not
-/// on this tick.
-const DISCOVERY_INTERVAL: Duration = Duration::from_secs(3);
+use std::sync::mpsc::Receiver;
 
 /// Interaction mode of the dashboard.
 pub enum Mode {
@@ -45,13 +34,8 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
-        // One synchronous scan so the first frame isn't empty, then a worker
-        // thread takes over: it watches the transcript files and only re-reads
-        // the ones that actually change.
-        let agents = initial_scan();
-        let (tx, rx) = mpsc::channel();
-        thread::spawn(move || run_scanner(tx));
-
+        let agents = scan::snapshot();
+        let rx = scan::spawn();
         Self {
             agents,
             selected: 0,
@@ -104,8 +88,7 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(self.grid_cols() as isize),
             KeyCode::Left | KeyCode::Char('h') => self.move_selection(-1),
             KeyCode::Right | KeyCode::Char('l') => self.move_selection(1),
-            // Quick-jump: 1-9 select agents 1..9, 0 selects the 10th. Selects
-            // only — never opens.
+            // Quick-jump: 1-9 select agents 1..9, 0 selects the 10th.
             KeyCode::Char(c @ '0'..='9') => {
                 let d = c.to_digit(10).unwrap() as usize;
                 let idx = if d == 0 { 9 } else { d - 1 };
@@ -164,7 +147,6 @@ impl App {
             Some(a) if a.openable() => {
                 if let Some(id) = a.window_id.clone() {
                     let _ = tmux::kill_window(&id);
-                    // Optimistic local removal; the scanner will confirm.
                     self.agents.remove(self.selected);
                     self.reconcile_selection();
                     self.status = "agent window killed".into();
@@ -219,150 +201,6 @@ impl App {
             self.selected = self.agents.len().saturating_sub(1);
         }
         self.selected_cwd = self.agents.get(self.selected).map(|a| a.cwd.clone());
-    }
-}
-
-/// The cwd -> (pids, tmux window id) map from a process/window discovery pass.
-fn discover_cwds() -> BTreeMap<PathBuf, (Vec<u32>, Option<String>)> {
-    let mut cwds: BTreeMap<PathBuf, (Vec<u32>, Option<String>)> = BTreeMap::new();
-    for (cwd, pids) in discover::running_claudes() {
-        cwds.entry(cwd).or_default().0 = pids;
-    }
-    for (win, cwd) in tmux::list_windows_with_cwd().unwrap_or_default() {
-        cwds.entry(cwd).or_default().1 = Some(win.id);
-    }
-    cwds
-}
-
-/// Locate and fully parse an agent's transcript (reads the file tail).
-fn reparse(agent: &mut Agent) {
-    agent.transcript = transcript::newest_session(&agent.cwd, SystemTime::UNIX_EPOCH);
-    if let Some(t) = agent.transcript.clone() {
-        if let Ok(state) = transcript::parse(&t, &agent.cwd) {
-            agent.state = state;
-        }
-    }
-}
-
-/// One-off full scan used to populate the very first frame.
-fn initial_scan() -> Vec<Agent> {
-    discover_cwds()
-        .into_iter()
-        .map(|(cwd, (pids, window_id))| {
-            let mut a = Agent::new(cwd);
-            a.pids = pids;
-            a.window_id = window_id;
-            reparse(&mut a);
-            a
-        })
-        .collect()
-}
-
-/// Background scanner: watches `~/.claude/projects` for transcript changes and
-/// re-parses only the affected file, plus a cheap periodic discovery tick for
-/// the process/window set. Streams full snapshots to the UI.
-fn run_scanner(tx: Sender<Vec<Agent>>) {
-    let projects = dirs::home_dir().map(|h| h.join(".claude/projects"));
-
-    // Set up the filesystem watcher (best effort).
-    let (fs_tx, fs_rx) = mpsc::channel();
-    let watcher = projects.as_ref().and_then(|p| {
-        let mut w = notify::recommended_watcher(move |res| {
-            let _ = fs_tx.send(res);
-        })
-        .ok()?;
-        w.watch(p, RecursiveMode::Recursive).ok()?;
-        Some(w)
-    });
-    let _watcher = watcher; // keep alive for the loop's lifetime
-
-    let mut agents: BTreeMap<PathBuf, Agent> = BTreeMap::new();
-    // Encoded project-dir name (the `-Users-...` folder) -> cwd, for mapping
-    // file events back to an agent without fragile path-prefix comparisons.
-    let mut dir_to_cwd: HashMap<OsString, PathBuf> = HashMap::new();
-    let mut last_discovery = Instant::now()
-        .checked_sub(DISCOVERY_INTERVAL)
-        .unwrap_or_else(Instant::now); // force an immediate discovery
-
-    loop {
-        // Block until a file event arrives or it's time for a discovery tick.
-        let first = fs_rx.recv_timeout(Duration::from_millis(500));
-        let mut dirty: HashSet<PathBuf> = HashSet::new();
-        let mut force_discovery = false;
-
-        let handle = |res: notify::Result<notify::Event>,
-                      dirty: &mut HashSet<PathBuf>,
-                      force: &mut bool| {
-            if let Ok(ev) = res {
-                for path in ev.paths {
-                    if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-                        continue;
-                    }
-                    match path.parent().and_then(|p| p.file_name()).map(|n| n.to_os_string()) {
-                        Some(name) => match dir_to_cwd.get(&name) {
-                            Some(cwd) => {
-                                dirty.insert(cwd.clone());
-                            }
-                            None => *force = true, // unknown project — rediscover
-                        },
-                        None => {}
-                    }
-                }
-            }
-        };
-
-        match first {
-            Ok(res) => handle(res, &mut dirty, &mut force_discovery),
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => {
-                // No watcher available — fall back to periodic discovery only.
-                thread::sleep(Duration::from_millis(500));
-            }
-        }
-        // Coalesce any further queued events into this batch.
-        while let Ok(res) = fs_rx.try_recv() {
-            handle(res, &mut dirty, &mut force_discovery);
-        }
-
-        let mut changed = false;
-
-        if force_discovery || last_discovery.elapsed() >= DISCOVERY_INTERVAL {
-            let cwds = discover_cwds();
-            agents.retain(|cwd, _| cwds.contains_key(cwd));
-            for (cwd, (pids, window_id)) in cwds {
-                let entry = agents.entry(cwd.clone()).or_insert_with(|| {
-                    let mut a = Agent::new(cwd.clone());
-                    reparse(&mut a);
-                    a
-                });
-                entry.pids = pids;
-                entry.window_id = window_id;
-                // Refresh working/idle cheaply from mtime (no content read).
-                if let Some(t) = &entry.transcript {
-                    entry.state.status = transcript::status_from_mtime(t);
-                }
-            }
-            dir_to_cwd = agents
-                .keys()
-                .filter_map(|cwd| {
-                    transcript::project_dir(cwd)
-                        .and_then(|d| d.file_name().map(|n| (n.to_os_string(), cwd.clone())))
-                })
-                .collect();
-            last_discovery = Instant::now();
-            changed = true;
-        }
-
-        for cwd in dirty {
-            if let Some(agent) = agents.get_mut(&cwd) {
-                reparse(agent);
-                changed = true;
-            }
-        }
-
-        if changed && tx.send(agents.values().cloned().collect()).is_err() {
-            break; // UI gone
-        }
     }
 }
 
