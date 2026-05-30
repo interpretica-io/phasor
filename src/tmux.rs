@@ -1,24 +1,24 @@
 //! Thin wrapper around the tmux CLI.
 //!
-//! Enxame keeps all agent terminals inside a single dedicated tmux server
-//! (its own socket, `-L enxame`) so it never collides with the user's own
-//! tmux. One agent == one tmux window in the session `enxame`.
+//! Phasor keeps all agent terminals inside a single dedicated tmux server
+//! (its own socket, `-L phasor`) so it never collides with the user's own
+//! tmux. One agent == one tmux window in the session `phasor`.
 
 use anyhow::{Context, Result};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 
-/// tmux socket name. Override with `ENXAME_SOCKET` to run an isolated instance
-/// (e.g. for tests) without touching the real `enxame` server.
+/// tmux socket name. Override with `PHASOR_SOCKET` to run an isolated instance
+/// (e.g. for tests) without touching the real `phasor` server.
 pub fn socket() -> &'static str {
     static S: OnceLock<String> = OnceLock::new();
-    S.get_or_init(|| std::env::var("ENXAME_SOCKET").unwrap_or_else(|_| "enxame".into()))
+    S.get_or_init(|| std::env::var("PHASOR_SOCKET").unwrap_or_else(|_| "phasor".into()))
 }
 
-/// tmux session name. Override with `ENXAME_SESSION`.
+/// tmux session name. Override with `PHASOR_SESSION`.
 pub fn session() -> &'static str {
     static S: OnceLock<String> = OnceLock::new();
-    S.get_or_init(|| std::env::var("ENXAME_SESSION").unwrap_or_else(|_| "enxame".into()))
+    S.get_or_init(|| std::env::var("PHASOR_SESSION").unwrap_or_else(|_| "phasor".into()))
 }
 
 /// A tmux window backing a single agent. `id` is a stable tmux window id
@@ -36,7 +36,7 @@ fn tmux() -> Command {
 }
 
 /// Max time we'll wait for any tmux command. A wedged tmux server must never
-/// freeze enxame — commands time out and surface an error instead.
+/// freeze phasor — commands time out and surface an error instead.
 const TMUX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
 
 /// Spawn a command and wait at most `TMUX_TIMEOUT`; kill it if it hangs.
@@ -71,7 +71,7 @@ fn run(args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// True if the enxame session already exists on our socket (timeout-bounded, so
+/// True if the phasor session already exists on our socket (timeout-bounded, so
 /// a wedged server reports "no session" rather than hanging).
 fn session_exists() -> bool {
     run_timed(tmux().args(["has-session", "-t", session()]))
@@ -79,7 +79,7 @@ fn session_exists() -> bool {
         .unwrap_or(false)
 }
 
-/// Ensure the enxame session exists. The session is created detached with a
+/// Ensure the phasor session exists. The session is created detached with a
 /// throwaway placeholder window; real agents get their own windows.
 pub fn ensure_session() -> Result<()> {
     if !session_exists() {
@@ -89,7 +89,7 @@ pub fn ensure_session() -> Result<()> {
             "-s",
             session(),
             "-n",
-            "_enxame",
+            "_phasor",
             "-x",
             "200",
             "-y",
@@ -100,7 +100,7 @@ pub fn ensure_session() -> Result<()> {
     Ok(())
 }
 
-/// Best-effort configuration of the enxame tmux server: a single no-prefix
+/// Best-effort configuration of the phasor tmux server: a single no-prefix
 /// key to jump back to the dashboard, plus a visible hint in the status bar.
 /// All commands are idempotent; failures are ignored so they never block the
 /// app.
@@ -131,15 +131,15 @@ fn configure() {
             "set-option",
             "-g",
             "status-left",
-            "#[fg=#0c0e14,bg=#6cb6ff,bold] ◍ enxame #[bg=#11141d,fg=#8a92a6]  ",
+            "#[fg=#0c0e14,bg=#6cb6ff,bold] ◍ phasor #[bg=#11141d,fg=#8a92a6]  ",
         ],
         &["set-option", "-g", "status-left-length", "24"],
-        // window list: hide the `_enxame` placeholder; current window = green chip
+        // window list: hide the `_phasor` placeholder; current window = green chip
         &[
             "set-option",
             "-g",
             "window-status-format",
-            "#{?#{==:#{window_name},_enxame},,#[fg=#5b6275] #I #W }",
+            "#{?#{==:#{window_name},_phasor},,#[fg=#5b6275] #I #W }",
         ],
         &[
             "set-option",
@@ -148,7 +148,7 @@ fn configure() {
             // NB: no commas inside the #[...] here — commas are argument
             // separators inside the #{?...} conditional, so a comma in a style
             // block leaks (e.g. `bold]`). Use separate #[] blocks instead.
-            "#{?#{==:#{window_name},_enxame},,#[fg=#0c0e14]#[bg=#5ce08a]#[bold] #W #[default]}",
+            "#{?#{==:#{window_name},_phasor},,#[fg=#0c0e14]#[bg=#5ce08a]#[bold] #W #[default]}",
         ],
         &["set-option", "-g", "window-status-separator", ""],
         // right: session name + the detach hint, with Ctrl-Q accented
@@ -169,9 +169,9 @@ fn configure() {
 /// Create a new window running `cmd` in `cwd`, returning its stable id.
 pub fn new_window(name: &str, cwd: &str, cmd: &str) -> Result<Window> {
     ensure_session()?;
-    // Target the session with a trailing colon (`enxame:`) so tmux appends at
-    // the next free index. A bare `enxame` is parsed as a target *window* and
-    // would collide with a window that happens to be named `enxame`.
+    // Target the session with a trailing colon (`phasor:`) so tmux appends at
+    // the next free index. A bare `phasor` is parsed as a target *window* and
+    // would collide with a window that happens to be named `phasor`.
     let target = format!("{}:", session());
     // -P prints info about the new window; -F gives us id + name.
     let out = run(&[
@@ -228,7 +228,7 @@ pub fn new_session_id() -> String {
 /// Tag a window with the claude session id it's running, so the scanner can
 /// resolve that window's exact transcript file (not just the newest in the dir).
 pub fn set_window_session(window_id: &str, session_id: &str) -> Result<()> {
-    run(&["set-option", "-w", "-t", window_id, "@enxame_session", session_id])?;
+    run(&["set-option", "-w", "-t", window_id, "@phasor_session", session_id])?;
     Ok(())
 }
 
@@ -237,21 +237,21 @@ pub fn set_window_session(window_id: &str, session_id: &str) -> Result<()> {
 /// "already sent" marker so a freshly-queued instruction fires even if the
 /// agent is already finished/idle.
 pub fn set_window_pending(window_id: &str, instruction: &str) -> Result<()> {
-    run(&["set-option", "-w", "-t", window_id, "@enxame_pending", instruction])?;
-    let _ = run(&["set-option", "-w", "-t", window_id, "@enxame_sent", ""]);
+    run(&["set-option", "-w", "-t", window_id, "@phasor_pending", instruction])?;
+    let _ = run(&["set-option", "-w", "-t", window_id, "@phasor_sent", ""]);
     Ok(())
 }
 
 /// The turn marker we last auto-sent an instruction for (so we send once per
 /// completed turn).
 pub fn get_window_sent(window_id: &str) -> Option<String> {
-    let out = run(&["display-message", "-p", "-t", window_id, "#{@enxame_sent}"]).ok()?;
+    let out = run(&["display-message", "-p", "-t", window_id, "#{@phasor_sent}"]).ok()?;
     let t = out.trim();
     (!t.is_empty()).then(|| t.to_string())
 }
 
 pub fn set_window_sent(window_id: &str, marker: &str) {
-    let _ = run(&["set-option", "-w", "-t", window_id, "@enxame_sent", marker]);
+    let _ = run(&["set-option", "-w", "-t", window_id, "@phasor_sent", marker]);
 }
 
 /// Type `text` into a window and submit it (used to auto-send instructions).
@@ -261,8 +261,8 @@ pub fn send_text(window_id: &str, text: &str) -> Result<()> {
     Ok(())
 }
 
-/// List all agent windows in the enxame session (excludes nothing; the
-/// caller filters the `_enxame` placeholder if desired).
+/// List all agent windows in the phasor session (excludes nothing; the
+/// caller filters the `_phasor` placeholder if desired).
 pub fn list_windows() -> Result<Vec<Window>> {
     if !session_exists() {
         return Ok(Vec::new());
@@ -295,7 +295,7 @@ pub struct WinInfo {
 }
 
 /// List agent windows with the cwd and pane pid of their active pane. The
-/// `_enxame` placeholder window is excluded.
+/// `_phasor` placeholder window is excluded.
 pub fn list_windows_with_cwd() -> Result<Vec<WinInfo>> {
     if !session_exists() {
         return Ok(Vec::new());
@@ -305,7 +305,7 @@ pub fn list_windows_with_cwd() -> Result<Vec<WinInfo>> {
         "-t",
         session(),
         "-F",
-        "#{window_id}\t#{window_name}\t#{pane_pid}\t#{@enxame_session}\t#{pane_current_path}\t#{@enxame_pending}",
+        "#{window_id}\t#{window_name}\t#{pane_pid}\t#{@phasor_session}\t#{pane_current_path}\t#{@phasor_pending}",
     ])?;
     let mut v = Vec::new();
     for line in out.lines() {
@@ -316,7 +316,7 @@ pub fn list_windows_with_cwd() -> Result<Vec<WinInfo>> {
             continue;
         };
         let pending = parts.next().filter(|s| !s.is_empty()).map(|s| s.to_string());
-        if name == "_enxame" {
+        if name == "_phasor" {
             continue;
         }
         v.push(WinInfo {
@@ -357,7 +357,7 @@ pub fn attach_command(window_id: &str) -> Command {
     // `attach` lands there.
     let _ = run(&["select-window", "-t", window_id]);
     let mut c = tmux();
-    // Crucial: if enxame itself runs inside a tmux session, `$TMUX` is set and
+    // Crucial: if phasor itself runs inside a tmux session, `$TMUX` is set and
     // tmux refuses to attach ("sessions should be nested with care"). We attach
     // on our own dedicated socket, so clearing it is safe and correct.
     c.env_remove("TMUX");
