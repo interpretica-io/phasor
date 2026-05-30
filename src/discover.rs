@@ -1,5 +1,5 @@
 //! Discovery of *all* running Claude Code CLI processes on the machine,
-//! regardless of whether enxame launched them.
+//! regardless of whether phasor launched them.
 //!
 //! The CLI shows up in `ps` with the exact command name `claude` (the desktop
 //! app is `Claude` / `Claude Helper`, so a case-sensitive match excludes it).
