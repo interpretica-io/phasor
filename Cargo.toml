@@ -11,5 +11,7 @@ serde_json = "1"
 anyhow = "1"
 dirs = "5"
 notify = "6"
-tungstenite = "0.21"
 portable-pty = "0.8"
+axum = { version = "0.8.9", features = ["ws"] }
+tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
+futures-util = "0.3.32"
