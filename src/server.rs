@@ -15,10 +15,7 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
-use std::time::Duration;
 use tungstenite::handshake::derive_accept_key;
-use tungstenite::protocol::{Role, WebSocket};
-use tungstenite::Message;
 
 const SESSION: &str = "enxame";
 const SOCKET: &str = "enxame";
@@ -154,14 +151,17 @@ fn handle_ws(mut stream: TcpStream, target: &str, headers: &HashMap<String, Stri
         return Ok(());
     }
 
-    // A short read timeout lets the input loop release the WebSocket lock so the
-    // output thread can write — a simple full-duplex over one socket.
-    stream.set_read_timeout(Some(Duration::from_millis(20))).ok();
-    let ws = WebSocket::from_raw_socket(stream, Role::Server, None);
-    bridge_pty(ws, &win)
+    // Interactive terminal: disable Nagle so keystrokes/output aren't batched.
+    stream.set_nodelay(true).ok();
+    bridge_pty(stream, &win)
 }
 
-fn bridge_pty(ws: WebSocket<TcpStream>, win: &str) -> Result<()> {
+/// Bridge a WebSocket (post-handshake `stream`) to a PTY running `tmux attach`.
+///
+/// Read and write use independent clones of the socket so the blocking PTY/WS
+/// reads never stall the output path. Writes (frames + pongs) are serialized by
+/// a mutex; that mutex is only ever held for the duration of a quick write.
+fn bridge_pty(stream: TcpStream, win: &str) -> Result<()> {
     let pty = native_pty_system();
     let pair = pty.openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })?;
 
@@ -175,64 +175,113 @@ fn bridge_pty(ws: WebSocket<TcpStream>, win: &str) -> Result<()> {
     let mut child = pair.slave.spawn_command(cmd)?;
     drop(pair.slave);
 
-    let mut reader = pair.master.try_clone_reader()?;
-    let mut writer = pair.master.take_writer()?;
-    let master = Arc::new(Mutex::new(pair.master));
+    let mut pty_reader = pair.master.try_clone_reader()?;
+    let mut pty_writer = pair.master.take_writer()?;
+    let master = pair.master; // used only here, for resize
 
-    let ws = Arc::new(Mutex::new(ws));
+    let mut ws_read = stream.try_clone()?;
+    let ws_write = Arc::new(Mutex::new(stream));
 
-    // PTY -> WebSocket
-    let ws_out = ws.clone();
+    // PTY -> WebSocket (binary frames). Its own write clone; no lock contention
+    // with the input loop's blocking reads.
+    let out = ws_write.clone();
     let pump = thread::spawn(move || {
-        let mut buf = [0u8; 8192];
+        let mut buf = [0u8; 16384];
         loop {
-            match reader.read(&mut buf) {
+            match pty_reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    let mut g = ws_out.lock().unwrap();
-                    if g.send(Message::Binary(buf[..n].to_vec())).is_err() {
+                    let mut w = out.lock().unwrap();
+                    if write_frame(&mut *w, 0x2, &buf[..n]).is_err() {
                         break;
                     }
                 }
             }
         }
-        let _ = ws_out.lock().unwrap().close(None);
+        let _ = write_frame(&mut *out.lock().unwrap(), 0x8, &[]); // close
     });
 
-    // WebSocket -> PTY (and resize control messages)
+    // WebSocket -> PTY (binary = input bytes, text = resize JSON, ping -> pong).
     loop {
-        let msg = { ws.lock().unwrap().read() };
-        match msg {
-            Ok(Message::Binary(b)) => {
-                let _ = writer.write_all(&b);
-                let _ = writer.flush();
+        match read_frame(&mut ws_read) {
+            Ok(Some((0x2, payload))) => {
+                let _ = pty_writer.write_all(&payload);
+                let _ = pty_writer.flush();
             }
-            Ok(Message::Text(t)) => {
+            Ok(Some((0x1, payload))) => {
+                let t = String::from_utf8_lossy(&payload);
                 if let Some((cols, rows)) = parse_resize(&t) {
-                    let _ = master.lock().unwrap().resize(PtySize {
-                        rows,
-                        cols,
-                        pixel_width: 0,
-                        pixel_height: 0,
-                    });
+                    let _ = master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
                 }
             }
-            Ok(Message::Close(_)) => break,
-            Ok(_) => {}
-            Err(tungstenite::Error::Io(e))
-                if e.kind() == std::io::ErrorKind::WouldBlock
-                    || e.kind() == std::io::ErrorKind::TimedOut =>
-            {
-                // No input this slice; let the output thread breathe.
-                continue;
+            Ok(Some((0x9, payload))) => {
+                let _ = write_frame(&mut *ws_write.lock().unwrap(), 0xA, &payload);
             }
-            Err(_) => break,
+            Ok(Some((0x8, _))) | Ok(None) | Err(_) => break,
+            Ok(Some(_)) => {}
         }
     }
 
     let _ = child.kill();
+    let _ = ws_read.shutdown(std::net::Shutdown::Both);
     let _ = pump.join();
     Ok(())
+}
+
+/// Write a single (unmasked, FIN) WebSocket server frame.
+fn write_frame(w: &mut impl Write, opcode: u8, payload: &[u8]) -> std::io::Result<()> {
+    let mut head = Vec::with_capacity(10);
+    head.push(0x80 | (opcode & 0x0f));
+    let n = payload.len();
+    if n < 126 {
+        head.push(n as u8);
+    } else if n <= 0xffff {
+        head.push(126);
+        head.extend_from_slice(&(n as u16).to_be_bytes());
+    } else {
+        head.push(127);
+        head.extend_from_slice(&(n as u64).to_be_bytes());
+    }
+    w.write_all(&head)?;
+    w.write_all(payload)?;
+    w.flush()
+}
+
+/// Read one WebSocket frame from a client, unmasking. Returns `(opcode,
+/// payload)`, or `None` on EOF. Assumes unfragmented frames (true for the tiny
+/// input/resize/ping frames browsers send here).
+fn read_frame(r: &mut impl Read) -> std::io::Result<Option<(u8, Vec<u8>)>> {
+    let mut h = [0u8; 2];
+    if r.read_exact(&mut h).is_err() {
+        return Ok(None);
+    }
+    let opcode = h[0] & 0x0f;
+    let masked = h[1] & 0x80 != 0;
+    let mut len = (h[1] & 0x7f) as usize;
+    if len == 126 {
+        let mut b = [0u8; 2];
+        r.read_exact(&mut b)?;
+        len = u16::from_be_bytes(b) as usize;
+    } else if len == 127 {
+        let mut b = [0u8; 8];
+        r.read_exact(&mut b)?;
+        len = u64::from_be_bytes(b) as usize;
+    }
+    let mask = if masked {
+        let mut m = [0u8; 4];
+        r.read_exact(&mut m)?;
+        Some(m)
+    } else {
+        None
+    };
+    let mut payload = vec![0u8; len];
+    r.read_exact(&mut payload)?;
+    if let Some(m) = mask {
+        for (i, b) in payload.iter_mut().enumerate() {
+            *b ^= m[i % 4];
+        }
+    }
+    Ok(Some((opcode, payload)))
 }
 
 fn parse_resize(t: &str) -> Option<(u16, u16)> {
