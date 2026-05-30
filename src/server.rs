@@ -31,6 +31,9 @@ struct AgentDto {
     todos: Option<[usize; 2]>,
     phrase: Option<String>,
     folders: Vec<String>,
+    load: u8,
+    activity: Vec<u8>,
+    seq: u64,
 }
 
 #[derive(Serialize)]
@@ -65,6 +68,9 @@ fn to_dto(a: &Agent) -> AgentDto {
         todos: a.state.todos.map(|(d, t)| [d, t]),
         phrase: a.state.last_phrases.back().cloned(),
         folders,
+        load: a.load(),
+        activity: a.activity.iter().copied().collect(),
+        seq: a.completions,
     }
 }
 
