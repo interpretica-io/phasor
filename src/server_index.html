@@ -63,6 +63,7 @@
 
   #graph{position:fixed;inset:0;width:100%;height:100%;z-index:1;display:block}
 
+  .hull{fill-opacity:.07;stroke-opacity:.35;stroke-width:2;stroke-linejoin:round;pointer-events:none}
   .link{stroke:var(--accent);stroke-opacity:.18;pointer-events:none}
   .linkhit{stroke:transparent;stroke-width:14;cursor:help;pointer-events:stroke}
   .node{cursor:default}
@@ -176,17 +177,32 @@ matchMedia("(prefers-color-scheme: light)").addEventListener("change",applyTheme
 // ---- D3 force graph ----
 const svg=d3.select("#graph");
 const root=svg.append("g");
-const gLink=root.append("g"), gHit=root.append("g"), gNode=root.append("g");
+const gHull=root.append("g"), gLink=root.append("g"), gHit=root.append("g"), gNode=root.append("g");
 let W=innerWidth,H=innerHeight;
 svg.call(d3.zoom().scaleExtent([.35,3]).on("zoom",e=>root.attr("transform",e.transform)));
 
 const R=d=>16+(d.load||0)/100*26;          // agent radius by load
 // Collision reserves vertical room for the folder column hanging below.
 const COLL=d=>R(d)+40+(d.folders?d.folders.length:0)*15;
+// Pull same-cluster nodes toward their cluster centroid so clusters separate
+// into tight, non-overlapping groups (each gets its own contour).
+function clusterForce(strength){
+  let nodes=[];
+  function f(alpha){
+    const cen={};
+    for(const n of nodes){ if(n.cluster<0) continue; const c=cen[n.cluster]||(cen[n.cluster]={x:0,y:0,n:0}); c.x+=n.x; c.y+=n.y; c.n++; }
+    for(const k in cen){ cen[k].x/=cen[k].n; cen[k].y/=cen[k].n; }
+    for(const n of nodes){ if(n.cluster<0) continue; const c=cen[n.cluster];
+      n.vx+=(c.x-n.x)*strength*alpha; n.vy+=(c.y-n.y)*strength*alpha; }
+  }
+  f.initialize=n=>nodes=n;
+  return f;
+}
 const sim=d3.forceSimulation()
-  .force("charge",d3.forceManyBody().strength(-1100).distanceMax(1100))
+  .force("charge",d3.forceManyBody().strength(-1100).distanceMax(1200))
   .force("link",d3.forceLink().id(d=>d.id)
-     .distance(d=>Math.max(120,250-d.w*28)).strength(d=>Math.min(.55,.14+d.w*.12)))
+     .distance(d=>Math.max(110,210-d.w*28)).strength(d=>Math.min(.6,.2+d.w*.14)))
+  .force("cluster",clusterForce(.7))
   .force("collide",d3.forceCollide().radius(COLL).strength(1))
   .force("x",d3.forceX(()=>W/2).strength(.03))
   .force("y",d3.forceY(()=>H/2).strength(.04))
@@ -304,7 +320,30 @@ function update(agents){
   else sim.alphaTarget(0);
 }
 
+function hullPath(members){
+  const pts=[];
+  for(const m of members){
+    const pad=R(m)+34;
+    for(let a=0;a<Math.PI*2;a+=Math.PI/5) pts.push([m.x+Math.cos(a)*pad, m.y+Math.sin(a)*pad]);
+  }
+  const h=d3.polygonHull(pts);
+  return h ? d3.line().curve(d3.curveCatmullRomClosed)(h) : null;
+}
+function drawHulls(){
+  const groups={};
+  for(const n of nodes){ if(n.cluster>=0 && n.x!=null){ (groups[n.cluster]||(groups[n.cluster]=[])).push(n); } }
+  const hulls=Object.entries(groups).filter(([,m])=>m.length>=2)
+    .map(([cid,m])=>({cid:+cid, hue:((+cid)*137.5)%360, d:hullPath(m)}))
+    .filter(h=>h.d);
+  const sel=gHull.selectAll("path").data(hulls,h=>h.cid);
+  sel.exit().remove();
+  sel.enter().append("path").attr("class","hull").merge(sel)
+    .attr("d",h=>h.d)
+    .attr("stroke",h=>`hsl(${h.hue},70%,60%)`)
+    .attr("fill",h=>`hsl(${h.hue},70%,55%)`);
+}
 function ticked(){
+  drawHulls();
   gLink.selectAll("line").attr("x1",d=>d.source.x).attr("y1",d=>d.source.y)
     .attr("x2",d=>d.target.x).attr("y2",d=>d.target.y);
   gHit.selectAll("line").attr("x1",d=>d.source.x).attr("y1",d=>d.source.y)
