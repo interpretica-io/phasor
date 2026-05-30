@@ -6,9 +6,20 @@
 
 use anyhow::{Context, Result};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 
-const SOCKET: &str = "enxame";
-const SESSION: &str = "enxame";
+/// tmux socket name. Override with `ENXAME_SOCKET` to run an isolated instance
+/// (e.g. for tests) without touching the real `enxame` server.
+pub fn socket() -> &'static str {
+    static S: OnceLock<String> = OnceLock::new();
+    S.get_or_init(|| std::env::var("ENXAME_SOCKET").unwrap_or_else(|_| "enxame".into()))
+}
+
+/// tmux session name. Override with `ENXAME_session()`.
+pub fn session() -> &'static str {
+    static S: OnceLock<String> = OnceLock::new();
+    S.get_or_init(|| std::env::var("ENXAME_session()").unwrap_or_else(|_| "enxame".into()))
+}
 
 /// A tmux window backing a single agent. `id` is a stable tmux window id
 /// (e.g. `@3`) that survives reordering.
@@ -20,7 +31,7 @@ pub struct Window {
 
 fn tmux() -> Command {
     let mut c = Command::new("tmux");
-    c.args(["-L", SOCKET]);
+    c.args(["-L", socket()]);
     c
 }
 
@@ -43,7 +54,7 @@ fn run(args: &[&str]) -> Result<String> {
 /// True if the enxame session already exists on our socket.
 fn session_exists() -> bool {
     tmux()
-        .args(["has-session", "-t", SESSION])
+        .args(["has-session", "-t", session()])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -59,7 +70,7 @@ pub fn ensure_session() -> Result<()> {
             "new-session",
             "-d",
             "-s",
-            SESSION,
+            session(),
             "-n",
             "_enxame",
             "-x",
@@ -113,7 +124,7 @@ pub fn new_window(name: &str, cwd: &str, cmd: &str) -> Result<Window> {
     // Target the session with a trailing colon (`enxame:`) so tmux appends at
     // the next free index. A bare `enxame` is parsed as a target *window* and
     // would collide with a window that happens to be named `enxame`.
-    let target = format!("{SESSION}:");
+    let target = format!("{}:", session());
     // -P prints info about the new window; -F gives us id + name.
     let out = run(&[
         "new-window",
@@ -145,7 +156,7 @@ pub fn list_windows() -> Result<Vec<Window>> {
     let out = run(&[
         "list-windows",
         "-t",
-        SESSION,
+        session(),
         "-F",
         "#{window_id}\t#{window_name}",
     ])?;
@@ -168,7 +179,7 @@ pub fn list_windows_with_cwd() -> Result<Vec<(Window, std::path::PathBuf)>> {
     let out = run(&[
         "list-windows",
         "-t",
-        SESSION,
+        session(),
         "-F",
         "#{window_id}\t#{window_name}\t#{pane_current_path}",
     ])?;
@@ -223,7 +234,7 @@ pub fn attach_command(window_id: &str) -> Command {
     // tmux refuses to attach ("sessions should be nested with care"). We attach
     // on our own dedicated socket, so clearing it is safe and correct.
     c.env_remove("TMUX");
-    c.args(["attach-session", "-t", SESSION]);
+    c.args(["attach-session", "-t", session()]);
     c
 }
 
