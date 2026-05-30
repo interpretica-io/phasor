@@ -26,16 +26,85 @@ const HISTORY: usize = 60;
 /// Transcript bytes/second that map to 100% load.
 const LOAD_FULL_BPS: f32 = 1200.0;
 
-/// The cwd -> (pids, tmux window id) map from a process/window discovery pass.
-fn discover_cwds() -> BTreeMap<PathBuf, (Vec<u32>, Option<String>)> {
-    let mut cwds: BTreeMap<PathBuf, (Vec<u32>, Option<String>)> = BTreeMap::new();
-    for (cwd, pids) in discover::running_claudes() {
-        cwds.entry(cwd).or_default().0 = pids;
+/// A discovered node: one tmux window OR one external claude process. Agents
+/// are NOT grouped by folder.
+struct Node {
+    id: String,
+    cwd: PathBuf,
+    window_id: Option<String>,
+    pids: Vec<u32>,
+    session_id: Option<String>,
+}
+
+/// Discover all nodes: each enxame tmux window is its own node; each external
+/// claude (one not running inside an enxame window) is its own node.
+fn discover_nodes() -> Vec<Node> {
+    let windows = tmux::list_windows_with_cwd().unwrap_or_default();
+    let pane_pids: HashSet<u32> = windows.iter().map(|w| w.pane_pid).collect();
+    let claudes = discover::running_claudes();
+
+    let mut nodes: Vec<Node> = Vec::new();
+    // One node per tmux window; attach the claude pid running inside it.
+    for w in &windows {
+        let pids = claudes
+            .iter()
+            .filter(|p| p.pid == w.pane_pid || p.ppid == w.pane_pid)
+            .map(|p| p.pid)
+            .collect();
+        nodes.push(Node {
+            id: w.id.clone(),
+            cwd: w.cwd.clone(),
+            window_id: Some(w.id.clone()),
+            pids,
+            session_id: w.session_id.clone(),
+        });
     }
-    for (win, cwd) in tmux::list_windows_with_cwd().unwrap_or_default() {
-        cwds.entry(cwd).or_default().1 = Some(win.id);
+    // One node per external claude (not inside any enxame window).
+    for p in &claudes {
+        if pane_pids.contains(&p.pid) || pane_pids.contains(&p.ppid) {
+            continue;
+        }
+        nodes.push(Node {
+            id: format!("pid:{}", p.pid),
+            cwd: p.cwd.clone(),
+            window_id: None,
+            pids: vec![p.pid],
+            session_id: None,
+        });
     }
-    cwds
+    // Multiple external claudes in the same folder share one project dir but
+    // each has its OWN session file. Give each a distinct session (the N
+    // newest, paired in a stable pid order) so the nodes aren't identical.
+    let mut by_cwd: HashMap<PathBuf, Vec<usize>> = HashMap::new();
+    for (i, n) in nodes.iter().enumerate() {
+        if n.window_id.is_none() {
+            by_cwd.entry(n.cwd.clone()).or_default().push(i);
+        }
+    }
+    for (cwd, mut idxs) in by_cwd {
+        if idxs.len() < 2 {
+            continue; // single claude → newest-session fallback is fine
+        }
+        idxs.sort_by_key(|&i| nodes[i].pids.first().copied().unwrap_or(0));
+        let files = transcript::sessions(&cwd);
+        for (k, &i) in idxs.iter().enumerate() {
+            if let Some(stem) = files.get(k).and_then(|p| p.file_stem()).and_then(|s| s.to_str()) {
+                nodes[i].session_id = Some(stem.to_string());
+            }
+        }
+    }
+
+    // Stable display order: by cwd, then id.
+    nodes.sort_by(|a, b| a.cwd.cmp(&b.cwd).then(a.id.cmp(&b.id)));
+    nodes
+}
+
+fn node_to_agent(n: Node) -> Agent {
+    let mut a = Agent::new(n.id, n.cwd);
+    a.pids = n.pids;
+    a.window_id = n.window_id;
+    a.session_id = n.session_id;
+    a
 }
 
 /// Locate and fully parse an agent's transcript (reads the file tail). If the
@@ -44,7 +113,14 @@ fn discover_cwds() -> BTreeMap<PathBuf, (Vec<u32>, Option<String>)> {
 fn reparse(agent: &mut Agent) {
     let prev_marker = agent.state.final_marker.clone();
     let prev_dirs = agent.state.work_dirs.clone();
-    agent.transcript = transcript::newest_session(&agent.cwd, SystemTime::UNIX_EPOCH);
+    // Prefer this agent's own session file (when enxame launched it with a known
+    // session id); otherwise fall back to the newest session in the cwd.
+    agent.transcript = agent
+        .session_id
+        .as_ref()
+        .and_then(|sid| transcript::project_dir(&agent.cwd).map(|d| d.join(format!("{sid}.jsonl"))))
+        .filter(|p| p.exists())
+        .or_else(|| transcript::newest_session(&agent.cwd, SystemTime::UNIX_EPOCH));
     if let Some(t) = agent.transcript.clone() {
         if let Ok(mut state) = transcript::parse(&t, &agent.cwd) {
             // Accumulate touched folders across polls: each parse only sees the
@@ -68,12 +144,10 @@ fn reparse(agent: &mut Agent) {
 
 /// One-off full scan, used to populate the first frame.
 pub fn snapshot() -> Vec<Agent> {
-    discover_cwds()
+    discover_nodes()
         .into_iter()
-        .map(|(cwd, (pids, window_id))| {
-            let mut a = Agent::new(cwd);
-            a.pids = pids;
-            a.window_id = window_id;
+        .map(|n| {
+            let mut a = node_to_agent(n);
             reparse(&mut a);
             a
         })
@@ -103,12 +177,13 @@ fn run_scanner(tx: Sender<Vec<Agent>>) {
     });
     let _watcher = watcher; // keep alive for the loop's lifetime
 
-    let mut agents: BTreeMap<PathBuf, Agent> = BTreeMap::new();
+    let mut agents: BTreeMap<String, Agent> = BTreeMap::new(); // keyed by node id
     let mut dir_to_cwd: HashMap<OsString, PathBuf> = HashMap::new();
     let mut last_discovery = Instant::now()
         .checked_sub(DISCOVERY_INTERVAL)
         .unwrap_or_else(Instant::now);
     let mut last_sample = Instant::now();
+    let mut named: HashMap<String, String> = HashMap::new(); // window_id -> name we set
 
     loop {
         let first = fs_rx.recv_timeout(Duration::from_millis(500));
@@ -150,37 +225,67 @@ fn run_scanner(tx: Sender<Vec<Agent>>) {
         let mut changed = false;
 
         if force_discovery || last_discovery.elapsed() >= DISCOVERY_INTERVAL {
-            let cwds = discover_cwds();
-            agents.retain(|cwd, _| cwds.contains_key(cwd));
-            for (cwd, (pids, window_id)) in cwds {
-                let entry = agents.entry(cwd.clone()).or_insert_with(|| {
-                    let mut a = Agent::new(cwd.clone());
+            let nodes = discover_nodes();
+            let ids: HashSet<String> = nodes.iter().map(|n| n.id.clone()).collect();
+            agents.retain(|id, _| ids.contains(id));
+            for n in nodes {
+                let entry = agents.entry(n.id.clone()).or_insert_with(|| {
+                    let mut a = node_to_agent(Node {
+                        id: n.id.clone(),
+                        cwd: n.cwd.clone(),
+                        window_id: n.window_id.clone(),
+                        pids: vec![],
+                        session_id: n.session_id.clone(),
+                    });
                     reparse(&mut a);
                     a
                 });
-                entry.pids = pids;
-                entry.window_id = window_id;
+                entry.cwd = n.cwd;
+                entry.pids = n.pids;
+                entry.window_id = n.window_id;
+                entry.session_id = n.session_id;
                 if let Some(t) = &entry.transcript {
                     entry.state.status = transcript::status_from_mtime(t);
                 }
             }
+            // Map encoded project-dir name -> cwd (several nodes may share a cwd).
             dir_to_cwd = agents
-                .keys()
-                .filter_map(|cwd| {
-                    transcript::project_dir(cwd)
-                        .and_then(|d| d.file_name().map(|n| (n.to_os_string(), cwd.clone())))
+                .values()
+                .filter_map(|a| {
+                    transcript::project_dir(&a.cwd)
+                        .and_then(|d| d.file_name().map(|n| (n.to_os_string(), a.cwd.clone())))
                 })
                 .collect();
             last_discovery = Instant::now();
             changed = true;
         }
 
-        for cwd in dirty {
-            if let Some(agent) = agents.get_mut(&cwd) {
+        // A changed transcript may belong to several nodes (same cwd) — reparse
+        // all of them.
+        for cwd in &dirty {
+            for agent in agents.values_mut().filter(|a| &a.cwd == cwd) {
                 reparse(agent);
                 changed = true;
             }
         }
+
+        // Label each agent's tmux window with its task title (so the tmux
+        // status bar shows meaningful names, not "1 enxame 2 enxame"). Only
+        // rename when it actually changes.
+        for agent in agents.values() {
+            if let (Some(wid), Some(title)) = (&agent.window_id, agent.state.title.as_ref()) {
+                let name: String = title.split_whitespace().collect::<Vec<_>>().join(" ");
+                let name: String = name.chars().take(28).collect();
+                if name.is_empty() {
+                    continue;
+                }
+                if named.get(wid).map(|n| n != &name).unwrap_or(true) {
+                    let _ = tmux::rename_window(wid, &name);
+                    named.insert(wid.clone(), name);
+                }
+            }
+        }
+        named.retain(|wid, _| agents.values().any(|a| a.window_id.as_deref() == Some(wid)));
 
         // Activity sampling: how fast each transcript is growing (cheap stat).
         if last_sample.elapsed() >= SAMPLE_INTERVAL {
@@ -209,8 +314,12 @@ fn run_scanner(tx: Sender<Vec<Agent>>) {
             changed = true;
         }
 
-        if changed && tx.send(agents.values().cloned().collect()).is_err() {
-            break; // consumer gone
+        if changed {
+            let mut snap: Vec<Agent> = agents.values().cloned().collect();
+            snap.sort_by(|a, b| a.cwd.cmp(&b.cwd).then(a.id.cmp(&b.id)));
+            if tx.send(snap).is_err() {
+                break; // consumer gone
+            }
         }
     }
 }
