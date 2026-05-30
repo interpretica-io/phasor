@@ -3,6 +3,7 @@
 
 mod agent;
 mod app;
+mod config;
 mod discover;
 mod scan;
 mod server;
@@ -119,6 +120,15 @@ fn run(terminal: &mut Term, initial_attach: Option<String>) -> Result<()> {
         if let Some(window_id) = app.attach_to.take() {
             if let Err(e) = attach(terminal, &window_id) {
                 app.note(format!("could not open terminal: {e}"));
+            }
+            continue;
+        }
+
+        // Edit projects config in $EDITOR — also suspends the TUI.
+        if std::mem::take(&mut app.edit_projects) {
+            match edit_projects(terminal) {
+                Ok(()) => app.note("projects saved — colors update within a few seconds"),
+                Err(e) => app.note(format!("could not edit projects: {e}")),
             }
             continue;
         }
@@ -295,6 +305,40 @@ fn doctor() -> Result<()> {
         }
         None => println!("no session file found"),
     }
+    Ok(())
+}
+
+/// Suspend the dashboard and open the projects config in `$EDITOR`. Seeds a
+/// commented example if the file doesn't exist yet, so the user sees the
+/// expected shape. Restores the TUI afterward.
+fn edit_projects(terminal: &mut Term) -> Result<()> {
+    let path = config::path().context("no home directory")?;
+    if !path.exists() {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).ok();
+        }
+        let example = serde_json::to_string_pretty(&vec![config::Project {
+            name: "example".into(),
+            prefix: dirs::home_dir()
+                .map(|h| h.join("src").to_string_lossy().into_owned())
+                .unwrap_or_else(|| "/path/to/projects".into()),
+            color: "#7aa2f7".into(),
+        }])?;
+        std::fs::write(&path, example).ok();
+    }
+    let editor = std::env::var("VISUAL")
+        .or_else(|_| std::env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".into());
+
+    restore_terminal(terminal)?;
+    let status = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("{editor} {}", shell_quote(&path.to_string_lossy())))
+        .status();
+    enable_raw_mode()?;
+    execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+    terminal.clear()?;
+    status.context("failed to launch editor")?;
     Ok(())
 }
 
