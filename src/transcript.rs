@@ -167,7 +167,11 @@ pub fn parse(path: &Path, root: &Path) -> Result<AgentState> {
         }
     }
 
-    state.work_dirs = dirs.into_iter().collect();
+    // Guard against parse junk ever surfacing as a folder.
+    state.work_dirs = dirs
+        .into_iter()
+        .filter(|d| d.is_absolute() && !d.to_string_lossy().contains('"'))
+        .collect();
     state.last_activity = Some(mtime);
     state.status = match mtime.elapsed() {
         Ok(e) if e <= WORKING_WINDOW => Status::Working,
