@@ -73,7 +73,9 @@ Inside an agent's terminal, press **`Ctrl-Q`** to jump back to the dashboard
 classic tmux **prefix + d** (default `Ctrl-b` `d`) also works. A reminder is
 shown in the tmux status bar at the bottom while you're attached. Agents
 survive across dashboard restarts — they live in a dedicated tmux server
-(`tmux -L enxame`).
+(`tmux -L enxame`). Set `ENXAME_SOCKET` / `ENXAME_SESSION` to run an isolated
+instance on a different socket (handy for testing without disturbing your live
+agents).
 
 ### Web dashboard
 
