@@ -1,4 +1,4 @@
-//! enxame — a terminal dashboard that orchestrates multiple Claude Code
+//! phasor — a terminal dashboard that orchestrates multiple Claude Code
 //! agents, each running in its own tmux window, shown as a live block diagram.
 
 mod agent;
@@ -31,7 +31,7 @@ type Term = Terminal<CrosstermBackend<Stdout>>;
 
 fn main() -> Result<()> {
     if !tmux::available() {
-        eprintln!("enxame requires tmux on PATH.");
+        eprintln!("phasor requires tmux on PATH.");
         std::process::exit(1);
     }
     match std::env::args().nth(1).as_deref() {
@@ -52,12 +52,12 @@ fn main() -> Result<()> {
         // silently launch the TUI; show usage.
         Some(other) => {
             eprintln!(
-                "enxame: unknown command '{other}'\n\
-                 usage:\n  enxame                 dashboard (TUI)\n  \
-                 enxame serve [port]    web dashboard (default 7878)\n  \
-                 enxame start CMD…      run CMD in a new window and open it\n  \
-                 enxame exec  CMD…      run CMD in a new window (background)\n  \
-                 enxame doctor [cwd]    diagnostics"
+                "phasor: unknown command '{other}'\n\
+                 usage:\n  phasor                 dashboard (TUI)\n  \
+                 phasor serve [port]    web dashboard (default 7878)\n  \
+                 phasor start CMD…      run CMD in a new window and open it\n  \
+                 phasor exec  CMD…      run CMD in a new window (background)\n  \
+                 phasor doctor [cwd]    diagnostics"
             );
             std::process::exit(2);
         }
@@ -69,7 +69,7 @@ fn main() -> Result<()> {
 /// straight into that tmux window (used by `start`); detaching collapses
 /// back into the dashboard.
 fn run_dashboard(initial_attach: Option<String>) -> Result<()> {
-    tmux::ensure_session().context("failed to create enxame tmux session")?;
+    tmux::ensure_session().context("failed to create phasor tmux session")?;
 
     let mut terminal = setup_terminal()?;
     let res = run(&mut terminal, initial_attach);
@@ -164,12 +164,12 @@ fn run(terminal: &mut Term, initial_attach: Option<String>) -> Result<()> {
 }
 
 /// Start the command (everything after the subcommand) in a new tmux window of
-/// the enxame session, in the current directory. Returns the window plus a
+/// the phasor session, in the current directory. Returns the window plus a
 /// human-readable command string.
 fn spawn_exec_window(subcmd: &str) -> Result<(tmux::Window, String)> {
     let cmd: Vec<String> = std::env::args().skip(2).collect();
     if cmd.is_empty() {
-        anyhow::bail!("usage: enxame {subcmd} <command> [args...]");
+        anyhow::bail!("usage: phasor {subcmd} <command> [args...]");
     }
     let cwd = std::env::current_dir().context("cannot determine current directory")?;
     let name = cwd
@@ -204,16 +204,16 @@ fn spawn_exec_window(subcmd: &str) -> Result<(tmux::Window, String)> {
     Ok((win, cmd.join(" ")))
 }
 
-/// `enxame exec <command...>`: spawn the command in a new enxame tmux window,
-/// then exit. Lets external scripts seed enxame-managed agents (they show up as
+/// `phasor exec <command...>`: spawn the command in a new phasor tmux window,
+/// then exit. Lets external scripts seed phasor-managed agents (they show up as
 /// openable in the dashboard).
 fn exec_window() -> Result<()> {
     let (win, shown) = spawn_exec_window("exec")?;
-    println!("enxame: launched [{}] in tmux window {} ({})", shown, win.id, win.name);
+    println!("phasor: launched [{}] in tmux window {} ({})", shown, win.id, win.name);
     Ok(())
 }
 
-/// `enxame start <command...>`: like `exec`, but launches the dashboard opened
+/// `phasor start <command...>`: like `exec`, but launches the dashboard opened
 /// straight into the new window. Detaching (Ctrl-Q / prefix+d) collapses back
 /// into the dashboard, where the agent is a card you can re-open (Enter).
 fn start_window() -> Result<()> {
@@ -228,7 +228,7 @@ fn shell_quote(arg: &str) -> String {
 
 /// Render a single dashboard frame to an off-screen buffer and print it as
 /// plain text. Lets you eyeball the galaxy layout without a TTY.
-/// Usage: `enxame render [WIDTHxHEIGHT]`.
+/// Usage: `phasor render [WIDTHxHEIGHT]`.
 fn render_once() -> Result<()> {
     use ratatui::backend::TestBackend;
 
@@ -259,7 +259,7 @@ fn render_once() -> Result<()> {
 }
 
 /// Non-TUI self-check: prints tmux windows and parses the most recent
-/// transcript under a given cwd. Usage: `enxame doctor [cwd]`.
+/// transcript under a given cwd. Usage: `phasor doctor [cwd]`.
 fn doctor() -> Result<()> {
     use std::path::PathBuf;
     use std::time::SystemTime;
@@ -267,7 +267,7 @@ fn doctor() -> Result<()> {
     println!("tmux available: yes");
     match tmux::list_windows() {
         Ok(ws) => {
-            println!("enxame windows: {}", ws.len());
+            println!("phasor windows: {}", ws.len());
             for w in ws {
                 println!("  {} {}", w.id, w.name);
             }
