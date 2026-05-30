@@ -147,17 +147,31 @@ pub fn parse(path: &Path, root: &Path) -> Result<AgentState> {
                 }
             }
             Some("user") => {
-                // `/add-dir <path>` declares an extra working directory — treat
-                // it as a work dir directly.
-                if let Some(c) = v
-                    .get("message")
-                    .and_then(|m| m.get("content"))
-                    .and_then(|c| c.as_str())
-                {
-                    if c.contains("<command-name>/add-dir</command-name>") {
-                        if let Some(arg) = between(c, "<command-args>", "</command-args>") {
-                            if let Some(p) = resolve_dir(arg.trim(), root) {
-                                dirs.insert(p);
+                // `/add-dir <path>` declares an extra working directory — but
+                // only when the *human* typed it. Claude/SDK sometimes emit
+                // messages that merely contain the command text; accept only:
+                //   - userType "external" (the human, not an internal/agent msg)
+                //   - not a sidechain (subagent) message
+                //   - interactive entrypoint (not the programmatic "sdk-cli")
+                //   - content that actually STARTS with the command tag
+                let external = v.get("userType").and_then(|u| u.as_str()) == Some("external");
+                let sidechain = v.get("isSidechain").and_then(|b| b.as_bool()).unwrap_or(false);
+                let sdk = v
+                    .get("entrypoint")
+                    .and_then(|e| e.as_str())
+                    .map(|e| e.contains("sdk"))
+                    .unwrap_or(false);
+                if external && !sidechain && !sdk {
+                    if let Some(c) = v
+                        .get("message")
+                        .and_then(|m| m.get("content"))
+                        .and_then(|c| c.as_str())
+                    {
+                        if c.trim_start().starts_with("<command-name>/add-dir</command-name>") {
+                            if let Some(arg) = between(c, "<command-args>", "</command-args>") {
+                                if let Some(p) = resolve_dir(arg.trim(), root) {
+                                    dirs.insert(p);
+                                }
                             }
                         }
                     }
