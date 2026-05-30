@@ -96,6 +96,7 @@ fn draw_node(
         .iter()
         .filter(|d| *d != &agent.cwd)
         .filter_map(|d| d.file_name().map(|s| s.to_string_lossy().into_owned()))
+        .filter(|name| !crate::agent::is_noise_folder(name))
         .filter(|name| seen.insert(name.clone()))
         .collect();
 
