@@ -66,7 +66,7 @@ fn main() -> Result<()> {
 }
 
 /// Launch the dashboard TUI. If `initial_attach` is set, the dashboard opens
-/// straight into that tmux window (used by `--start`); detaching collapses
+/// straight into that tmux window (used by `start`); detaching collapses
 /// back into the dashboard.
 fn run_dashboard(initial_attach: Option<String>) -> Result<()> {
     tmux::ensure_session().context("failed to create enxame tmux session")?;
@@ -114,7 +114,7 @@ fn run(terminal: &mut Term, initial_attach: Option<String>) -> Result<()> {
 
     while !app.should_quit {
         // A requested attach suspends the TUI and hands the screen to tmux.
-        // Handled first so `--start` opens straight into the window with no
+        // Handled first so `start` opens straight into the window with no
         // dashboard flash; detaching (Alt-o / prefix+d) drops back here.
         // A failure must NOT kill the dashboard — show it in the status line.
         if let Some(window_id) = app.attach_to.take() {
@@ -163,13 +163,13 @@ fn run(terminal: &mut Term, initial_attach: Option<String>) -> Result<()> {
     Ok(())
 }
 
-/// Start the command (everything after the flag) in a new tmux window of the
-/// enxame session, in the current directory. Returns the window plus a
+/// Start the command (everything after the subcommand) in a new tmux window of
+/// the enxame session, in the current directory. Returns the window plus a
 /// human-readable command string.
-fn spawn_exec_window(flag: &str) -> Result<(tmux::Window, String)> {
+fn spawn_exec_window(subcmd: &str) -> Result<(tmux::Window, String)> {
     let cmd: Vec<String> = std::env::args().skip(2).collect();
     if cmd.is_empty() {
-        anyhow::bail!("usage: enxame {flag} <command> [args...]");
+        anyhow::bail!("usage: enxame {subcmd} <command> [args...]");
     }
     let cwd = std::env::current_dir().context("cannot determine current directory")?;
     let name = cwd
@@ -204,20 +204,20 @@ fn spawn_exec_window(flag: &str) -> Result<(tmux::Window, String)> {
     Ok((win, cmd.join(" ")))
 }
 
-/// `enxame --exec <command...>`: spawn the command in a new enxame tmux window,
+/// `enxame exec <command...>`: spawn the command in a new enxame tmux window,
 /// then exit. Lets external scripts seed enxame-managed agents (they show up as
 /// openable in the dashboard).
 fn exec_window() -> Result<()> {
-    let (win, shown) = spawn_exec_window("--exec")?;
+    let (win, shown) = spawn_exec_window("exec")?;
     println!("enxame: launched [{}] in tmux window {} ({})", shown, win.id, win.name);
     Ok(())
 }
 
-/// `enxame --start <command...>`: like `--exec`, but launches the dashboard
-/// opened straight into the new window. Detaching (Alt-o / prefix+d) collapses
-/// back into the dashboard, where the agent is a card you can re-open (Enter).
+/// `enxame start <command...>`: like `exec`, but launches the dashboard opened
+/// straight into the new window. Detaching (Ctrl-Q / prefix+d) collapses back
+/// into the dashboard, where the agent is a card you can re-open (Enter).
 fn start_window() -> Result<()> {
-    let (win, _shown) = spawn_exec_window("--start")?;
+    let (win, _shown) = spawn_exec_window("start")?;
     run_dashboard(Some(win.id))
 }
 

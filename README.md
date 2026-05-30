@@ -113,21 +113,21 @@ access, so it stays local.
 
 ```sh
 cd /path/to/project
-enxame --exec claude --dangerously-skip-permissions
+enxame exec claude --dangerously-skip-permissions
 ```
 
-Everything after `--exec` is run as a command in a **new tmux window** of the
+Everything after `exec` is run as a command in a **new tmux window** of the
 enxame session, in the current directory, and then the CLI exits. The window
 shows up in the dashboard as an openable `⧉ tmux` agent. Use it from scripts or
 other tools to seed enxame-managed terminals. Arguments are preserved, so
-compound commands work too: `enxame --exec bash -lc 'cd sub && claude'`.
+compound commands work too: `enxame exec bash -lc 'cd sub && claude'`.
 
-`--start` launches the **dashboard opened straight into the new window**, so
+`start` launches the **dashboard opened straight into the new window**, so
 you watch the command immediately:
 
 ```sh
 cd /path/to/project
-enxame --start claude
+enxame start claude
 ```
 
 Press **`Ctrl-Q`** (or tmux prefix + d) to **collapse** the terminal — you drop
