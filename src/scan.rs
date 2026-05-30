@@ -43,9 +43,19 @@ fn discover_cwds() -> BTreeMap<PathBuf, (Vec<u32>, Option<String>)> {
 /// the agent's very first parse, so pre-existing completions don't flash).
 fn reparse(agent: &mut Agent) {
     let prev_marker = agent.state.final_marker.clone();
+    let prev_dirs = agent.state.work_dirs.clone();
     agent.transcript = transcript::newest_session(&agent.cwd, SystemTime::UNIX_EPOCH);
     if let Some(t) = agent.transcript.clone() {
-        if let Ok(state) = transcript::parse(&t, &agent.cwd) {
+        if let Ok(mut state) = transcript::parse(&t, &agent.cwd) {
+            // Accumulate touched folders across polls: each parse only sees the
+            // tail, so without this the set would collapse whenever recent
+            // activity has no file ops. Union keeps everything once seen.
+            for d in &prev_dirs {
+                if !state.work_dirs.contains(d) {
+                    state.work_dirs.push(d.clone());
+                }
+            }
+            state.work_dirs.sort();
             let new_marker = state.final_marker.clone();
             agent.state = state;
             if prev_marker.is_some() && new_marker.is_some() && prev_marker != new_marker {
