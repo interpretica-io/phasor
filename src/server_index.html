@@ -150,6 +150,8 @@
 <script>
 const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function hue(s){let h=2166136261;for(const c of (s||" ")){h^=c.charCodeAt(0);h=(h*16777619)>>>0;}return h%360;}
+// folders arrive as full paths; show just the basename.
+const base=p=>(p||"").replace(/\/+$/,"").split("/").pop()||p;
 
 // ---- theme ----
 const TK="enxame-theme";
@@ -269,7 +271,7 @@ function update(agents){
     fl.exit().remove();
     fl.enter().append("text").attr("class","frow").merge(fl)
       .attr("y",(f,k)=>r+40+k*16)
-      .text(f=>"→ "+(f.length>22?f.slice(0,21)+"…":f));
+      .text(f=>{const b=base(f);return "→ "+(b.length>22?b.slice(0,21)+"…":b);});
   });
 
   // completion burst
@@ -319,7 +321,7 @@ function showTip(e,d){
 }
 function showLinkTip(e,d){
   const a=d.source.label||d.source.id, b=d.target.label||d.target.id;
-  const list=(d.shared||[]).map(f=>`<div class="ln"><span class="br">→ </span>${esc(f)}</div>`).join("");
+  const list=(d.shared||[]).map(f=>`<div class="ln"><span class="br">→ </span>${esc(base(f))} <span style="opacity:.5">${esc(f)}</span></div>`).join("");
   tip.innerHTML=`<div class="tt">${d.shared.length} shared folder${d.shared.length>1?"s":""}</div>`+
     `<div class="tm">${esc(a)} ⇄ ${esc(b)}</div><div class="tp" style="font-style:normal">${list}</div>`;
   tip.classList.add("on");
