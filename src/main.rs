@@ -45,7 +45,21 @@ fn main() -> Result<()> {
                 .unwrap_or(7878);
             return server::serve(port);
         }
-        _ => {}
+        // No args → the dashboard TUI.
+        None => {}
+        // An unrecognized command (e.g. `server` instead of `serve`) — don't
+        // silently launch the TUI; show usage.
+        Some(other) => {
+            eprintln!(
+                "enxame: unknown command '{other}'\n\
+                 usage:\n  enxame                 dashboard (TUI)\n  \
+                 enxame serve [port]    web dashboard (default 7878)\n  \
+                 enxame --start CMD…    run CMD in a new window and open it\n  \
+                 enxame --exec  CMD…    run CMD in a new window (background)\n  \
+                 enxame doctor [cwd]    diagnostics"
+            );
+            std::process::exit(2);
+        }
     }
     run_dashboard(None)
 }
@@ -63,10 +77,22 @@ fn run_dashboard(initial_attach: Option<String>) -> Result<()> {
 }
 
 fn setup_terminal() -> Result<Term> {
+    install_panic_hook();
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     Ok(Terminal::new(CrosstermBackend::new(stdout))?)
+}
+
+/// Restore the terminal on panic — otherwise a render panic leaves it in raw
+/// mode with mouse capture on, and the user "can't type anything".
+fn install_panic_hook() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = disable_raw_mode();
+        let _ = execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
+        default(info);
+    }));
 }
 
 fn restore_terminal(terminal: &mut Term) -> Result<()> {
@@ -140,11 +166,31 @@ fn spawn_exec_window(flag: &str) -> Result<(tmux::Window, String)> {
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "agent".into());
+
+    // If launching claude, give it a known session id so the window maps to its
+    // exact transcript. (Skip for arbitrary commands.)
+    let mut cmd = cmd;
+    let is_claude = cmd
+        .first()
+        .map(|c| c == "claude" || c.ends_with("/claude"))
+        .unwrap_or(false);
+    let sid = if is_claude && !cmd.iter().any(|a| a == "--session-id") {
+        let sid = tmux::new_session_id();
+        cmd.insert(1, "--session-id".into());
+        cmd.insert(2, sid.clone());
+        Some(sid)
+    } else {
+        None
+    };
+
     // tmux runs the window command through a shell, so shell-quote each argv
     // element to preserve boundaries (e.g. `sh -c "a; b"`).
     let joined = cmd.iter().map(|a| shell_quote(a)).collect::<Vec<_>>().join(" ");
     let win = tmux::new_window(&name, &cwd.to_string_lossy(), &joined)
         .context("failed to create tmux window")?;
+    if let Some(sid) = sid {
+        let _ = tmux::set_window_session(&win.id, &sid);
+    }
     Ok((win, cmd.join(" ")))
 }
 
@@ -219,9 +265,9 @@ fn doctor() -> Result<()> {
         Err(e) => println!("list_windows error: {e}"),
     }
 
-    println!("\ndiscovered running claudes (by cwd):");
-    for (cwd, pids) in discover::running_claudes() {
-        println!("  {:?}  {}", pids, cwd.display());
+    println!("\ndiscovered running claudes:");
+    for p in discover::running_claudes() {
+        println!("  pid {} (ppid {})  {}", p.pid, p.ppid, p.cwd.display());
     }
 
     let cwd = std::env::args()
