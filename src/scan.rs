@@ -10,6 +10,7 @@ use crate::{discover, transcript, tmux};
 use notify::{RecursiveMode, Watcher};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsString;
+use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
@@ -18,6 +19,12 @@ use std::time::{Duration, Instant, SystemTime};
 /// How often the process/window set is re-checked (cheap: ps + lsof + tmux, no
 /// transcript reads). Transcript content is refreshed by file-watch events.
 const DISCOVERY_INTERVAL: Duration = Duration::from_secs(3);
+/// How often agent activity (transcript growth) is sampled — a cheap `stat`.
+const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
+/// Length of the activity history kept per agent (seconds, at 1 Hz).
+const HISTORY: usize = 60;
+/// Transcript bytes/second that map to 100% load.
+const LOAD_FULL_BPS: f32 = 1200.0;
 
 /// The cwd -> (pids, tmux window id) map from a process/window discovery pass.
 fn discover_cwds() -> BTreeMap<PathBuf, (Vec<u32>, Option<String>)> {
@@ -31,12 +38,20 @@ fn discover_cwds() -> BTreeMap<PathBuf, (Vec<u32>, Option<String>)> {
     cwds
 }
 
-/// Locate and fully parse an agent's transcript (reads the file tail).
+/// Locate and fully parse an agent's transcript (reads the file tail). If the
+/// last completed-turn marker changed, record a completion event (but never on
+/// the agent's very first parse, so pre-existing completions don't flash).
 fn reparse(agent: &mut Agent) {
+    let prev_marker = agent.state.final_marker.clone();
     agent.transcript = transcript::newest_session(&agent.cwd, SystemTime::UNIX_EPOCH);
     if let Some(t) = agent.transcript.clone() {
         if let Ok(state) = transcript::parse(&t, &agent.cwd) {
+            let new_marker = state.final_marker.clone();
             agent.state = state;
+            if prev_marker.is_some() && new_marker.is_some() && prev_marker != new_marker {
+                agent.completed_at = Some(SystemTime::now());
+                agent.completions = agent.completions.wrapping_add(1);
+            }
         }
     }
 }
@@ -83,6 +98,7 @@ fn run_scanner(tx: Sender<Vec<Agent>>) {
     let mut last_discovery = Instant::now()
         .checked_sub(DISCOVERY_INTERVAL)
         .unwrap_or_else(Instant::now);
+    let mut last_sample = Instant::now();
 
     loop {
         let first = fs_rx.recv_timeout(Duration::from_millis(500));
@@ -154,6 +170,33 @@ fn run_scanner(tx: Sender<Vec<Agent>>) {
                 reparse(agent);
                 changed = true;
             }
+        }
+
+        // Activity sampling: how fast each transcript is growing (cheap stat).
+        if last_sample.elapsed() >= SAMPLE_INTERVAL {
+            let secs = last_sample.elapsed().as_secs_f32().max(0.1);
+            last_sample = Instant::now();
+            for agent in agents.values_mut() {
+                let len = agent
+                    .transcript
+                    .as_ref()
+                    .and_then(|t| fs::metadata(t).ok())
+                    .map(|m| m.len())
+                    .unwrap_or(0);
+                if agent.activity.is_empty() {
+                    agent.last_len = len; // prime without a startup spike
+                    agent.activity.push_back(0);
+                } else {
+                    let bps = len.saturating_sub(agent.last_len) as f32 / secs;
+                    agent.last_len = len;
+                    let load = ((bps / LOAD_FULL_BPS) * 100.0).clamp(0.0, 100.0) as u8;
+                    agent.activity.push_back(load);
+                }
+                while agent.activity.len() > HISTORY {
+                    agent.activity.pop_front();
+                }
+            }
+            changed = true;
         }
 
         if changed && tx.send(agents.values().cloned().collect()).is_err() {
