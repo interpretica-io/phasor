@@ -112,6 +112,16 @@ pub fn parse(path: &Path, root: &Path) -> Result<AgentState> {
                 }
             }
             Some("assistant") => {
+                // A finished turn (final answer) marks a completed task.
+                if v.get("message")
+                    .and_then(|m| m.get("stop_reason"))
+                    .and_then(|s| s.as_str())
+                    == Some("end_turn")
+                {
+                    if let Some(u) = v.get("uuid").and_then(|u| u.as_str()) {
+                        state.final_marker = Some(u.to_string());
+                    }
+                }
                 let content = v
                     .get("message")
                     .and_then(|m| m.get("content"))
