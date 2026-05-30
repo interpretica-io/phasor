@@ -33,6 +33,7 @@ struct AgentDto {
     load: u8,
     activity: Vec<u8>,
     seq: u64,
+    pending: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -82,6 +83,7 @@ fn to_dto(a: &Agent) -> AgentDto {
         load: a.load(),
         activity: a.activity.iter().copied().collect(),
         seq: a.completions,
+        pending: a.pending.clone(),
     }
 }
 
@@ -118,7 +120,7 @@ pub fn serve(port: u16) -> Result<()> {
 
 fn handle(mut stream: TcpStream, latest: Shared) -> Result<()> {
     let head = read_request_head(&mut stream)?;
-    let (target, headers) = parse_head(&head);
+    let (method, target, headers) = parse_head(&head);
     let path = target.split('?').next().unwrap_or("/");
 
     let is_ws = headers
@@ -128,6 +130,26 @@ fn handle(mut stream: TcpStream, latest: Shared) -> Result<()> {
 
     if is_ws && path == "/ws" {
         return handle_ws(stream, &target, &headers);
+    }
+
+    // Queue an instruction to auto-send when an agent finishes its turn.
+    if method == "POST" && path == "/api/instruct" {
+        let w = query_param(&target, "w").unwrap_or_default();
+        if !valid_window(&w) {
+            write_http(stream, "400 Bad Request", "text/plain", b"bad window");
+            return Ok(());
+        }
+        let len = headers
+            .get("content-length")
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(0)
+            .min(16384);
+        let mut body = vec![0u8; len];
+        let _ = stream.read_exact(&mut body);
+        let text = String::from_utf8_lossy(&body).trim().to_string();
+        let _ = crate::tmux::set_window_pending(&w, &text);
+        write_http(stream, "200 OK", "text/plain", b"ok");
+        return Ok(());
     }
 
     match path {
@@ -379,20 +401,18 @@ fn read_request_head(s: &mut TcpStream) -> Result<String> {
     Ok(String::from_utf8_lossy(&buf).into_owned())
 }
 
-fn parse_head(head: &str) -> (String, HashMap<String, String>) {
+fn parse_head(head: &str) -> (String, String, HashMap<String, String>) {
     let mut lines = head.split("\r\n");
-    let target = lines
-        .next()
-        .and_then(|l| l.split_whitespace().nth(1))
-        .unwrap_or("/")
-        .to_string();
+    let mut first = lines.next().unwrap_or("").split_whitespace();
+    let method = first.next().unwrap_or("GET").to_string();
+    let target = first.next().unwrap_or("/").to_string();
     let mut headers = HashMap::new();
     for line in lines {
         if let Some((k, v)) = line.split_once(':') {
             headers.insert(k.trim().to_ascii_lowercase(), v.trim().to_string());
         }
     }
-    (target, headers)
+    (method, target, headers)
 }
 
 fn write_http(mut s: TcpStream, status: &str, ctype: &str, body: &[u8]) {
