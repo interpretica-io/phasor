@@ -33,7 +33,7 @@ pub struct App {
     /// When set, the main loop should suspend the TUI and attach this window.
     pub attach_to: Option<String>,
     /// When set, the main loop should suspend the TUI and open the projects
-    /// config (`~/.enxame/projects.json`) in `$EDITOR`.
+    /// config (`~/.phasor/projects.json`) in `$EDITOR`.
     pub edit_projects: bool,
     /// Selection is tracked by node id so it stays put as the list is rebuilt.
     selected_id: Option<String>,
@@ -135,12 +135,12 @@ impl App {
             }
             KeyCode::Enter => self.open_selected(),
             KeyCode::Char('d') => self.kill_selected(),
-            // Edit the projects config (~/.enxame/projects.json) in $EDITOR.
+            // Edit the projects config (~/.phasor/projects.json) in $EDITOR.
             KeyCode::Char('p') => self.edit_projects = true,
             // Queue an instruction to auto-send when this agent finishes.
             KeyCode::Char('i') => match self.agents.get(self.selected) {
                 Some(a) if a.openable() => self.mode = Mode::Instruct { input: String::new() },
-                Some(_) => self.note("can't instruct an external claude (not in enxame's tmux)"),
+                Some(_) => self.note("can't instruct an external claude (not in phasor's tmux)"),
                 None => {}
             },
             _ => {}
@@ -175,14 +175,14 @@ impl App {
         }
     }
 
-    /// Open the selected agent's terminal, if it lives in enxame's tmux.
+    /// Open the selected agent's terminal, if it lives in phasor's tmux.
     pub fn open_selected(&mut self) {
         match self.agents.get(self.selected) {
             Some(a) if a.openable() => {
                 self.attach_to = a.window_id.clone();
             }
             Some(_) => {
-                self.note("external claude (not in an enxame tmux window) — monitor only");
+                self.note("external claude (not in an phasor tmux window) — monitor only");
             }
             None => {}
         }
@@ -199,7 +199,7 @@ impl App {
                 }
             }
             Some(_) => {
-                self.note("external claude — enxame won't kill processes it didn't start");
+                self.note("external claude — phasor won't kill processes it didn't start");
             }
             None => {}
         }
