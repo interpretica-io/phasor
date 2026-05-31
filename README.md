@@ -79,9 +79,8 @@ not run natively on **Windows**; use **WSL2** there.
 **Homebrew** (builds from source; pulls in Rust + tmux automatically):
 
 ```sh
-brew tap interpretica-io/phasor https://github.com/interpretica-io/phasor
-brew install --HEAD phasor      # latest from main
-# brew install phasor           # once a release is tagged + the formula's sha256 is set
+brew install --HEAD interpretica-io/phasor/phasor   # latest from main
+# brew install interpretica-io/phasor/phasor        # once a release is tagged + the formula's sha256 is set
 ```
 
 **With Cargo:**
