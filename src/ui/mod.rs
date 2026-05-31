@@ -1,9 +1,11 @@
 //! Rendering the dashboard with ratatui.
 //!
-//! Agents are drawn as a free-form "galaxy" field: each project is a star
-//! (the core) placed somewhere on the canvas, with the directories it touches
-//! orbiting around it as satellites connected by faint spokes. External
-//! claudes (not in phasor's tmux) are dimmed.
+//! Agents are drawn as a node field: each agent is a compact rounded card laid
+//! out on a grid, with solid line-drawn arrows fanning out to the folders it
+//! has touched. A card matched to a configured project is tinted in the
+//! project's colour and tagged with its name. External claudes (not in phasor's
+//! tmux) are dimmed. Below the field sits a status bar; popups handle the
+//! new-agent and instruction prompts.
 
 mod galaxy;
 
