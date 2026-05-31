@@ -345,10 +345,7 @@ mod tests {
 
     #[test]
     fn encode_cwd_replaces_special_chars() {
-        assert_eq!(
-            encode_cwd(Path::new("/u/m/app.rs_x.y")),
-            "-u-m-app-rs-x-y"
-        );
+        assert_eq!(encode_cwd(Path::new("/u/m/app.rs_x.y")), "-u-m-app-rs-x-y");
         assert_eq!(encode_cwd(Path::new("/a/b")), "-a-b");
     }
 
