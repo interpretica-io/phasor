@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>phasor — AI agent orchestration</title>
+<meta name="description" content="phasor discovers every running AI coding agent on your machine and gives you one live surface — terminal or browser — to watch, open, and steer them.">
+<meta property="og:title" content="phasor — AI agent orchestration">
+<meta property="og:description" content="One live surface for every AI coding agent on your machine.">
+<meta property="og:image" content="phasor.png">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%97%8D%3C/text%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#ffffff; --surface:#fafbfc; --ink:#0a0c11; --muted:#646c79;
+    --line:rgba(10,12,17,.12); --line-2:rgba(10,12,17,.22);
+    --accent:#1f6bff; --accent-rgb:31,107,255;
+    --btn-bg:#0a0c11; --btn-fg:#ffffff;
+    --code-bg:#0a0c12; --code-fg:#dfe7f5; --code-line:#1a2236;
+    --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"SF Pro Display",Inter,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --bg:#08090c; --surface:#0e1014; --ink:#f2f4f8; --muted:#919aa6;
+    --line:rgba(255,255,255,.13); --line-2:rgba(255,255,255,.24);
+    --accent:#5b9dff; --accent-rgb:91,157,255;
+    --btn-bg:#f2f4f8; --btn-fg:#0a0c11;
+  }}
+  :root[data-theme="dark"]{
+    --bg:#08090c; --surface:#0e1014; --ink:#f2f4f8; --muted:#919aa6;
+    --line:rgba(255,255,255,.13); --line-2:rgba(255,255,255,.24);
+    --accent:#5b9dff; --accent-rgb:91,157,255;
+    --btn-bg:#f2f4f8; --btn-fg:#0a0c11;
+  }
+
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 var(--sans);-webkit-font-smoothing:antialiased;letter-spacing:-.011em;
+    transition:background .25s,color .25s}
+  a{color:inherit;text-decoration:none}
+  ::selection{background:rgba(var(--accent-rgb),.22)}
+  .wrap{max-width:1140px;margin:0 auto;padding:0 32px}
+  @media(max-width:640px){.wrap{padding:0 20px}}
+
+  .mono{font-family:var(--mono)}
+  .label{font:600 12px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+  .spin{display:inline-block;color:var(--accent);animation:spin 11s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* ---------- nav ---------- */
+  nav{position:sticky;top:0;z-index:30;background:color-mix(in srgb,var(--bg) 82%,transparent);
+    backdrop-filter:saturate(140%) blur(14px);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;height:64px;gap:8px}
+  .brand{font-weight:680;font-size:18px;letter-spacing:-.02em;display:flex;align-items:center;gap:9px}
+  .navlinks{margin-left:auto;display:flex;align-items:center;gap:4px}
+  .navlinks a{font-size:14px;color:var(--muted);padding:8px 12px;border-radius:8px}
+  .navlinks a:hover{color:var(--ink)}
+  .iconbtn{cursor:pointer;background:transparent;border:1px solid var(--line);color:var(--ink);
+    width:38px;height:38px;border-radius:9px;font-size:15px;display:grid;place-items:center;margin-left:6px}
+  .iconbtn:hover{border-color:var(--line-2)}
+  .gh{border:1px solid var(--line);padding:8px 14px;border-radius:9px;color:var(--ink);font-size:14px}
+  .gh:hover{border-color:var(--line-2)}
+
+  /* ---------- hero ---------- */
+  .hero{padding:108px 0 0}
+  .hero .label{margin-bottom:26px}
+  h1{font-size:clamp(40px,6.4vw,76px);line-height:1.02;letter-spacing:-.035em;font-weight:660;
+    margin:0;max-width:16ch}
+  h1 em{font-style:normal;color:var(--accent)}
+  .sub{font-size:clamp(17px,2vw,20px);color:var(--muted);max-width:60ch;margin:26px 0 0;line-height:1.55}
+  .actions{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:38px}
+  .btn{display:inline-flex;align-items:center;gap:9px;padding:13px 20px;border-radius:10px;
+    font-size:15px;font-weight:560;border:1px solid var(--line)}
+  .btn.solid{background:var(--btn-bg);color:var(--btn-fg);border-color:var(--btn-bg)}
+  .btn.solid:hover{opacity:.9}
+  .btn.line:hover{border-color:var(--line-2)}
+  .arrowlink{font-size:15px;color:var(--muted);display:inline-flex;gap:7px;align-items:center}
+  .arrowlink:hover{color:var(--ink)}
+
+  .figure{margin:72px 0 0;border:1px solid var(--line);border-radius:18px;overflow:hidden;
+    background:var(--surface);position:relative}
+  .figure img{display:block;width:100%;height:auto}
+  .figure .cap{position:absolute;left:18px;bottom:16px;display:flex;gap:8px;align-items:center;
+    padding:7px 12px;border-radius:999px;font:600 12px/1 var(--mono);letter-spacing:.04em;
+    color:#0a0c11;background:rgba(255,255,255,.78);backdrop-filter:blur(6px)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px rgba(var(--accent-rgb),.18)}
+
+  /* ---------- generic section ---------- */
+  section{padding:96px 0}
+  .rule{border-top:1px solid var(--line)}
+  .head{display:flex;flex-direction:column;gap:16px;max-width:60ch}
+  .head h2{font-size:clamp(26px,3.4vw,38px);line-height:1.08;letter-spacing:-.025em;font-weight:640;margin:0}
+  .head p{margin:0;color:var(--muted);font-size:18px}
+
+  /* ---------- features (numbered, hairline grid) ---------- */
+  .feat{display:grid;grid-template-columns:repeat(3,1fr);margin-top:56px;
+    border-top:1px solid var(--line);border-left:1px solid var(--line)}
+  @media(max-width:860px){.feat{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:560px){.feat{grid-template-columns:1fr}}
+  .cell{padding:30px 28px 34px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .cell .n{font:600 13px/1 var(--mono);color:var(--accent);letter-spacing:.05em}
+  .cell h3{margin:22px 0 9px;font-size:18px;font-weight:600;letter-spacing:-.01em}
+  .cell p{margin:0;color:var(--muted);font-size:14.5px;line-height:1.6}
+
+  /* ---------- split ---------- */
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center;margin-top:8px}
+  @media(max-width:880px){.split{grid-template-columns:1fr;gap:40px}}
+  ul.ticks{list-style:none;margin:30px 0 0;padding:0;display:grid;gap:14px}
+  ul.ticks li{position:relative;padding-left:26px;color:var(--ink);font-size:15px}
+  ul.ticks li::before{content:"";position:absolute;left:2px;top:9px;width:8px;height:8px;
+    border:1.5px solid var(--accent);border-radius:2px;transform:rotate(45deg)}
+  ul.ticks li span{color:var(--muted)}
+  kbd{font:600 12px var(--mono);border:1px solid var(--line-2);border-bottom-width:2px;border-radius:6px;
+    padding:2px 6px;color:var(--ink)}
+
+  /* ---------- terminal / code (always dark — it's a terminal) ---------- */
+  .panel{background:var(--code-bg);border:1px solid var(--code-line);border-radius:14px;overflow:hidden}
+  .panel .bar{display:flex;align-items:center;gap:7px;padding:13px 16px;border-bottom:1px solid var(--code-line)}
+  .panel .bar i{width:11px;height:11px;border-radius:50%}
+  .panel .bar .r{background:#ff5f57}.panel .bar .y{background:#febc2e}.panel .bar .g{background:#28c840}
+  .panel .bar span{margin-left:8px;color:#6b7794;font:12px var(--mono)}
+  .panel pre{margin:0;padding:20px 22px 24px;color:var(--code-fg);font:13.5px/1.5 var(--mono);overflow-x:auto}
+  .b{color:#6cb6ff}.green{color:#5ce08a}.amber{color:#f0c75a}.proj{color:#10c44c}.dim{color:#6b7794}
+
+  pre.code{background:var(--code-bg);color:var(--code-fg);border:1px solid var(--code-line);
+    border-radius:14px;padding:22px;overflow-x:auto;font:13.5px/1.75 var(--mono);margin:0}
+  pre.code .c{color:#6b7794}.pre-p{color:#5ce08a}
+
+  .graphfig{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:8px}
+  .graphfig svg{display:block;width:100%;height:auto}
+  .graphfig text{font:600 11px var(--mono);fill:var(--muted);letter-spacing:.04em}
+
+  table.cmd{width:100%;border-collapse:collapse;margin-top:8px}
+  table.cmd td{padding:13px 2px;border-bottom:1px solid var(--line);font-size:14.5px;vertical-align:baseline}
+  table.cmd td:first-child{font-family:var(--mono);font-size:13.5px;color:var(--ink);white-space:nowrap;
+    padding-right:26px;width:1%}
+  table.cmd td:last-child{color:var(--muted)}
+  table.cmd tr:last-child td{border-bottom:none}
+
+  /* ---------- footer ---------- */
+  footer{border-top:1px solid var(--line);padding:46px 0}
+  footer .wrap{display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between}
+  footer .f-links{display:flex;gap:22px;color:var(--muted);font-size:14px}
+  footer .f-links a:hover{color:var(--ink)}
+  .stack{display:inline-flex;gap:8px;align-items:center;font:600 12px/1 var(--mono);
+    letter-spacing:.06em;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:7px 13px}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <span class="brand"><span class="spin">◍</span> phasor</span>
+    <div class="navlinks">
+      <a href="#capabilities">Capabilities</a>
+      <a href="#surfaces">Surfaces</a>
+      <a href="#start">Quickstart</a>
+      <a class="gh" href="https://github.com/interpretica-io/phasor">GitHub</a>
+      <button class="iconbtn" id="tt" onclick="cycleTheme()" title="theme">◐</button>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="label">AI agent orchestration</div>
+    <h1>Every AI agent on your machine, <em>one surface</em>.</h1>
+    <p class="sub">phasor discovers every running AI coding agent — the ones it launches in
+      tmux and the ones you started anywhere else — and gives you a single live view to
+      watch, open, and steer them. In the terminal, or your browser.</p>
+    <div class="actions">
+      <a class="btn solid" href="#start">Get started</a>
+      <a class="btn line" href="https://github.com/interpretica-io/phasor">Source <span aria-hidden="true">→</span></a>
+    </div>
+
+    <figure class="figure">
+      <img src="phasor.png" alt="phasor">
+      <figcaption class="cap"><span class="dot"></span> live</figcaption>
+    </figure>
+  </div>
+</header>
+
+<section id="capabilities" class="rule">
+  <div class="wrap">
+    <div class="head">
+      <div class="label">Capabilities</div>
+      <h2>Discovery, orchestration, and control — without leaving your workflow.</h2>
+    </div>
+
+    <div class="feat">
+      <div class="cell">
+        <div class="n">01</div>
+        <h3>Unified discovery</h3>
+        <p>Finds every running agent process automatically and shows each as its own live
+          node — title, status, todo progress, activity, touched folders.</p>
+      </div>
+      <div class="cell">
+        <div class="n">02</div>
+        <h3>Managed &amp; external</h3>
+        <p>Agents launched from phasor live in its own tmux session and open with one key.
+          Agents started elsewhere are discovered too — monitored, never disturbed.</p>
+      </div>
+      <div class="cell">
+        <div class="n">03</div>
+        <h3>Projects</h3>
+        <p>Map directory prefixes to a name and colour. Matching agents are grouped, tinted,
+          and labelled — editable from both the terminal and the browser.</p>
+      </div>
+      <div class="cell">
+        <div class="n">04</div>
+        <h3>Auto-instructions</h3>
+        <p>Queue a prompt to fire the moment an agent finishes its turn — repeated until the
+          work is genuinely complete. Chain steps without babysitting.</p>
+      </div>
+      <div class="cell">
+        <div class="n">05</div>
+        <h3>Browser terminals</h3>
+        <p>Drive any managed agent's real terminal live in the browser over a WebSocket
+          bridged to its session. Type, resize, detach — bound to localhost.</p>
+      </div>
+      <div class="cell">
+        <div class="n">06</div>
+        <h3>Activity &amp; completion</h3>
+        <p>A per-agent load meter shows how hard each is working; finishing a task is marked
+          in the terminal and bursts in the graph.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="surfaces" class="rule">
+  <div class="wrap">
+    <div class="split">
+      <div>
+        <div class="label">Surface · terminal</div>
+        <h2 class="head" style="margin:16px 0 0;font-size:clamp(26px,3.4vw,38px);letter-spacing:-.025em;font-weight:640">A dashboard that lives where you work.</h2>
+        <ul class="ticks">
+          <li>Quick-jump numbering and grid navigation</li>
+          <li>Project-tinted cards with a <span class="mono">◆ name</span> chip</li>
+          <li>Line-drawn arrows to every touched folder</li>
+          <li><kbd>Enter</kbd> opens · <kbd>i</kbd> instructs · <kbd>p</kbd> projects · <kbd>Ctrl-Q</kbd> detaches</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <div class="bar"><i class="r"></i><i class="y"></i><i class="g"></i><span>phasor</span></div>
+<pre><span class="b">◍ phasor</span>  1 in tmux · 6 external
+
+ ╭ <span class="proj">◆ Visao</span> ───────────────────────────╮
+ │┏━┓  <span class="green">●</span> Analyze visao project overview│
+ │┗━┓  <span class="green">▰▰▰▰▰</span>▱ 5/8                  <span class="amber">⚡42%</span>│
+ │┗━┛  <span class="dim">Build and test:…</span>                │
+ ╰───┬────────────────────────────────╯
+     ├──▶ Visitors
+     ├──▶ Parsing
+     ╰──▶ VirtualMachine</pre>
+      </div>
+    </div>
+
+    <div class="split" style="margin-top:84px">
+      <figure class="graphfig" style="order:2;margin:0">
+        <svg viewBox="0 0 540 320" role="img" aria-label="force-directed agent graph">
+          <!-- project contour -->
+          <path d="M104 168 C100 104 196 74 286 100 C352 120 344 214 256 222 C168 230 108 222 104 168 Z"
+                fill="var(--accent)" fill-opacity=".06" stroke="var(--accent)" stroke-opacity=".30" stroke-width="1.5"/>
+          <text x="118" y="92" fill="var(--accent)">project · Visao</text>
+          <!-- links -->
+          <g stroke="var(--accent)" stroke-opacity=".35">
+            <line x1="184" y1="158" x2="276" y2="124" stroke-width="2.4"/>
+            <line x1="184" y1="158" x2="404" y2="196" stroke-width="1.4"/>
+            <line x1="404" y1="196" x2="452" y2="104" stroke-width="1.4"/>
+          </g>
+          <!-- node A: working, progress ring -->
+          <circle cx="184" cy="158" r="27" fill="none" stroke="var(--line)" stroke-width="3"/>
+          <circle cx="184" cy="158" r="27" fill="none" stroke="var(--accent)" stroke-width="3"
+                  stroke-linecap="round" stroke-dasharray="102 170" transform="rotate(-90 184 158)"/>
+          <circle cx="184" cy="158" r="20" fill="#46c97a"/>
+          <!-- node B: working -->
+          <circle cx="276" cy="124" r="15" fill="#46c97a"/>
+          <!-- node C: idle -->
+          <circle cx="404" cy="196" r="14" fill="#e6a93c"/>
+          <!-- node D: idle -->
+          <circle cx="452" cy="104" r="11" fill="#e6a93c"/>
+          <text x="158" y="210">VirtualMachine</text>
+          <text x="294" y="121">Parsing</text>
+          <text x="422" y="200">Visitors</text>
+        </svg>
+      </figure>
+      <div style="order:1">
+        <div class="label">Surface · browser</div>
+        <h2 class="head" style="margin:16px 0 0;font-size:clamp(26px,3.4vw,38px);letter-spacing:-.025em;font-weight:640">A graph for the big screen.</h2>
+        <ul class="ticks">
+          <li>Nodes sized by load, coloured by status, ringed by progress</li>
+          <li>Folder-sharing agents <span>cluster and link</span> automatically</li>
+          <li>Projects and clusters wrapped in non-overlapping contours</li>
+          <li>Adaptive light/dark · JSON API · <span class="mono">127.0.0.1</span> only</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="start" class="rule">
+  <div class="wrap">
+    <div class="split" style="align-items:start">
+      <div>
+        <div class="label">Quickstart</div>
+        <h2 class="head" style="margin:16px 0 22px;font-size:clamp(26px,3.4vw,38px);letter-spacing:-.025em;font-weight:640">Two commands to first light.</h2>
+        <pre class="code"><span class="c"># needs tmux + an agent CLI on PATH, and Rust to build</span>
+cargo build --release
+
+<span class="c"># terminal dashboard</span>
+<span class="pre-p">./target/release/phasor</span>
+
+<span class="c"># browser dashboard</span>
+<span class="pre-p">phasor serve</span>          <span class="c"># http://127.0.0.1:7878</span>
+
+<span class="c"># spawn an agent in any project</span>
+cd /path/to/project &amp;&amp; <span class="pre-p">phasor exec claude</span></pre>
+      </div>
+      <div>
+        <div class="label">Commands</div>
+        <h2 class="head" style="margin:16px 0 22px;font-size:clamp(26px,3.4vw,38px);letter-spacing:-.025em;font-weight:640">The whole surface area.</h2>
+        <table class="cmd">
+          <tr><td>phasor</td><td>the dashboard (TUI)</td></tr>
+          <tr><td>serve [port]</td><td>web dashboard, default 7878</td></tr>
+          <tr><td>exec CMD…</td><td>run CMD in a new window, then exit</td></tr>
+          <tr><td>start CMD…</td><td>run CMD and open straight into it</td></tr>
+          <tr><td>doctor [cwd]</td><td>diagnose transcript resolution</td></tr>
+          <tr><td>render [WxH]</td><td>print one frame as plain text</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span class="brand"><span class="spin">◍</span> phasor</span>
+    <span class="stack">Rust · ratatui · axum · tmux</span>
+    <span class="f-links">
+      <a href="https://github.com/interpretica-io/phasor">GitHub</a>
+      <a href="https://github.com/interpretica-io/phasor#readme">README</a>
+    </span>
+  </div>
+</footer>
+
+<script>
+  const KEY="phasor-theme", root=document.documentElement;
+  function label(){const m=localStorage.getItem(KEY)||"auto";const b=document.getElementById("tt");
+    b.textContent=m==="auto"?"◐":(m==="dark"?"☾":"☀");b.title="theme: "+m;}
+  function applyTheme(){const m=localStorage.getItem(KEY)||"auto";
+    if(m==="auto")root.removeAttribute("data-theme");else root.setAttribute("data-theme",m);label();}
+  function cycleTheme(){const o=["auto","light","dark"],m=localStorage.getItem(KEY)||"auto";
+    localStorage.setItem(KEY,o[(o.indexOf(m)+1)%3]);applyTheme();}
+  applyTheme();
+</script>
+</body>
+</html>

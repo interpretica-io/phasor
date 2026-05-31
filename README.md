@@ -1,5 +1,10 @@
 # ◍ phasor
 
+![phasor](docs/phasor.png)
+
+**[Landing page](https://interpretica-io.github.io/phasor/)** ·
+**[GitHub](https://github.com/interpretica-io/phasor)**
+
 A terminal dashboard that monitors and orchestrates **every** running Claude
 Code agent on your machine. Phasor auto-discovers all `claude` CLI processes and
 shows each as a live node — its title, the directories it's touching, todo
