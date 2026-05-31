@@ -233,3 +233,45 @@ fn render_input_popup(f: &mut Frame, area: Rect, title: &str, input: &str) {
         inner,
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hb() -> HitBox {
+        HitBox {
+            idx: 0,
+            left: 10,
+            right: 20,
+            top: 5,
+            bottom: 8,
+        }
+    }
+
+    #[test]
+    fn contains_inside() {
+        assert!(hb().contains(15, 6));
+    }
+
+    #[test]
+    fn contains_edges_left_top_inclusive() {
+        let h = hb();
+        assert!(h.contains(10, 5)); // top-left corner inclusive
+        assert!(h.contains(19, 7)); // last inside cell
+    }
+
+    #[test]
+    fn contains_right_bottom_exclusive() {
+        let h = hb();
+        assert!(!h.contains(20, 6)); // right is exclusive
+        assert!(!h.contains(15, 8)); // bottom is exclusive
+    }
+
+    #[test]
+    fn contains_outside() {
+        let h = hb();
+        assert!(!h.contains(9, 6));
+        assert!(!h.contains(15, 4));
+        assert!(!h.contains(0, 0));
+    }
+}

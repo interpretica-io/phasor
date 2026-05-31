@@ -289,3 +289,103 @@ fn expand_path(raw: &str) -> PathBuf {
     }
     PathBuf::from(raw)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build an App with `n` agents and no real scanner (a dummy channel).
+    fn app_with(n: usize) -> App {
+        let (_tx, rx) = std::sync::mpsc::channel();
+        // Keep the sender alive for the app's lifetime so rx stays connected.
+        std::mem::forget(_tx);
+        let agents = (0..n)
+            .map(|i| Agent::new(format!("@{i}"), PathBuf::from(format!("/p{i}"))))
+            .collect();
+        App {
+            agents,
+            selected: 0,
+            mode: Mode::Normal,
+            status: String::new(),
+            status_at: Instant::now(),
+            should_quit: false,
+            attach_to: None,
+            edit_projects: false,
+            selected_id: None,
+            rx,
+        }
+    }
+
+    #[test]
+    fn expand_tilde_and_paths() {
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(expand_path("~"), home);
+        assert_eq!(expand_path("~/sub/x"), home.join("sub/x"));
+        assert_eq!(expand_path("/abs/dir"), PathBuf::from("/abs/dir"));
+        assert_eq!(expand_path("relative"), PathBuf::from("relative"));
+        assert_eq!(expand_path("  /trim/me  "), PathBuf::from("/trim/me"));
+    }
+
+    #[test]
+    fn grid_cols_is_ceil_sqrt() {
+        assert_eq!(app_with(0).grid_cols(), 1);
+        assert_eq!(app_with(1).grid_cols(), 1);
+        assert_eq!(app_with(2).grid_cols(), 2);
+        assert_eq!(app_with(4).grid_cols(), 2);
+        assert_eq!(app_with(5).grid_cols(), 3);
+        assert_eq!(app_with(9).grid_cols(), 3);
+        assert_eq!(app_with(10).grid_cols(), 4);
+    }
+
+    #[test]
+    fn move_selection_clamps_and_tracks_id() {
+        let mut app = app_with(5);
+        app.move_selection(1);
+        assert_eq!(app.selected, 1);
+        assert_eq!(app.selected_id.as_deref(), Some("@1"));
+        app.move_selection(-10); // clamp at 0
+        assert_eq!(app.selected, 0);
+        app.move_selection(100); // clamp at last
+        assert_eq!(app.selected, 4);
+        assert_eq!(app.selected_id.as_deref(), Some("@4"));
+    }
+
+    #[test]
+    fn move_selection_noop_when_empty() {
+        let mut app = app_with(0);
+        app.move_selection(1);
+        assert_eq!(app.selected, 0);
+    }
+
+    #[test]
+    fn select_respects_bounds() {
+        let mut app = app_with(3);
+        app.select(2);
+        assert_eq!(app.selected, 2);
+        assert_eq!(app.selected_id.as_deref(), Some("@2"));
+        app.select(99); // out of range → unchanged
+        assert_eq!(app.selected, 2);
+    }
+
+    #[test]
+    fn reconcile_pins_selection_by_id() {
+        let mut app = app_with(4);
+        app.selected_id = Some("@2".into());
+        // rebuild the list with @2 now at the front
+        app.agents = ["@2", "@0", "@1", "@3"]
+            .iter()
+            .map(|id| Agent::new((*id).into(), PathBuf::from("/x")))
+            .collect();
+        app.reconcile_selection();
+        assert_eq!(app.selected, 0);
+    }
+
+    #[test]
+    fn reconcile_clamps_when_id_gone() {
+        let mut app = app_with(2);
+        app.selected = 5;
+        app.selected_id = None;
+        app.reconcile_selection();
+        assert_eq!(app.selected, 1); // clamped to last index
+    }
+}

@@ -464,3 +464,42 @@ fn clip_phrase(s: &str, max: usize) -> String {
         format!("{head}…")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_hex_valid() {
+        assert_eq!(parse_hex("#1f6bff"), Some(Color::Rgb(31, 107, 255)));
+        assert_eq!(parse_hex("1f6bff"), Some(Color::Rgb(31, 107, 255)));
+        assert_eq!(parse_hex("#ffffff"), Some(Color::Rgb(255, 255, 255)));
+        assert_eq!(parse_hex("#000000"), Some(Color::Rgb(0, 0, 0)));
+        assert_eq!(parse_hex("  #abcdef  "), Some(Color::Rgb(0xab, 0xcd, 0xef)));
+    }
+
+    #[test]
+    fn parse_hex_invalid() {
+        assert_eq!(parse_hex("#fff"), None); // too short
+        assert_eq!(parse_hex("12345"), None); // wrong length
+        assert_eq!(parse_hex("gggggg"), None); // not hex
+        assert_eq!(parse_hex(""), None);
+    }
+
+    #[test]
+    fn clip_basic() {
+        assert_eq!(clip("hello", 3), "hel");
+        assert_eq!(clip("hi", 5), "hi");
+        assert_eq!(clip("x", 0), "");
+        assert_eq!(clip("héllo", 3), "hél"); // by char, not byte
+    }
+
+    #[test]
+    fn clip_phrase_collapses_and_ellipsizes() {
+        assert_eq!(clip_phrase("a   b   c", 20), "a b c");
+        assert_eq!(clip_phrase("abcdef", 3), "ab…");
+        assert_eq!(clip_phrase("abcdef", 3).chars().count(), 3);
+        assert_eq!(clip_phrase("short", 10), "short");
+        assert_eq!(clip_phrase("anything", 0), "");
+    }
+}

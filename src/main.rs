@@ -389,3 +389,22 @@ fn attach(terminal: &mut Term, window_id: &str) -> Result<()> {
     status.context("failed to attach to tmux window")?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shell_quote_wraps_in_single_quotes() {
+        assert_eq!(shell_quote("abc"), "'abc'");
+        assert_eq!(shell_quote("a b c"), "'a b c'");
+        assert_eq!(shell_quote(""), "''");
+    }
+
+    #[test]
+    fn shell_quote_escapes_embedded_quotes() {
+        // a'b → 'a'\''b'  (close, escaped quote, reopen)
+        assert_eq!(shell_quote("a'b"), "'a'\\''b'");
+        assert_eq!(shell_quote("''"), "''\\'''\\'''");
+    }
+}

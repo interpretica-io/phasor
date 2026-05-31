@@ -359,3 +359,110 @@ fn valid_window(w: &str) -> bool {
 
 /// The embedded browser dashboard (D3 graph, xterm.js terminal, editors).
 const INDEX_HTML: &str = include_str!("server_index.html");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn valid_window_accepts_only_at_digits() {
+        assert!(valid_window("@3"));
+        assert!(valid_window("@0"));
+        assert!(valid_window("@123"));
+        assert!(!valid_window("@"));
+        assert!(!valid_window("@a"));
+        assert!(!valid_window("@12a"));
+        assert!(!valid_window("3"));
+        assert!(!valid_window(""));
+        assert!(!valid_window("@3; rm -rf /"));
+    }
+
+    #[test]
+    fn parse_resize_valid() {
+        assert_eq!(
+            parse_resize(r#"{"resize":{"cols":120,"rows":40}}"#),
+            Some((120, 40))
+        );
+        assert_eq!(
+            parse_resize(r#"{"resize":{"cols":10,"rows":4}}"#),
+            Some((10, 4))
+        );
+    }
+
+    #[test]
+    fn parse_resize_rejects_tiny() {
+        assert_eq!(parse_resize(r#"{"resize":{"cols":9,"rows":40}}"#), None);
+        assert_eq!(parse_resize(r#"{"resize":{"cols":80,"rows":3}}"#), None);
+    }
+
+    #[test]
+    fn parse_resize_rejects_garbage() {
+        assert_eq!(parse_resize("not json"), None);
+        assert_eq!(parse_resize(r#"{"nope":1}"#), None);
+        assert_eq!(parse_resize(r#"{"resize":{"cols":80}}"#), None);
+    }
+
+    #[test]
+    fn to_dto_maps_fields_and_filters_folders() {
+        let mut a = Agent::new("@7".into(), PathBuf::from("/home/u/proj"));
+        a.window_id = Some("@7".into());
+        a.pids = vec![10, 11];
+        a.state.title = Some("Title".into());
+        a.state.status = Status::Working;
+        a.state.todos = Some((2, 5));
+        a.state.last_phrases.push_back("a phrase".into());
+        a.state.work_dirs = vec![
+            PathBuf::from("/home/u/proj"),
+            PathBuf::from("/home/u/proj/memory"), // noise → filtered
+            PathBuf::from("relative/dir"),        // not absolute → filtered
+            PathBuf::from("/home/u/proj"),        // duplicate → deduped
+            PathBuf::from("/home/u/proj/src"),
+        ];
+        a.activity.extend([1u8, 2, 77]);
+        a.completions = 3;
+        a.pending = Some("queued".into());
+        a.project_name = Some("Proj".into());
+        a.project_color = Some("#abcdef".into());
+
+        let d = to_dto(&a);
+        assert_eq!(d.id, "@7");
+        assert_eq!(d.label, "Title");
+        assert_eq!(d.cwd, "/home/u/proj");
+        assert!(d.openable);
+        assert_eq!(d.wid.as_deref(), Some("@7"));
+        assert_eq!(d.status, "working");
+        assert_eq!(d.procs, 2);
+        assert_eq!(d.todos, Some([2, 5]));
+        assert_eq!(d.phrase.as_deref(), Some("a phrase"));
+        assert_eq!(d.load, 77);
+        assert_eq!(d.seq, 3);
+        assert_eq!(d.pending.as_deref(), Some("queued"));
+        assert_eq!(d.project.as_deref(), Some("Proj"));
+        assert_eq!(d.pcolor.as_deref(), Some("#abcdef"));
+        assert_eq!(
+            d.folders,
+            vec!["/home/u/proj".to_string(), "/home/u/proj/src".to_string()]
+        );
+    }
+
+    #[test]
+    fn to_dto_external_and_status_mapping() {
+        let mut a = Agent::new("pid:9".into(), PathBuf::from("/tmp/x"));
+        // The scanner anchors the cwd in work_dirs; mirror that here.
+        a.state.work_dirs = vec![PathBuf::from("/tmp/x")];
+        a.state.status = Status::Idle;
+        let d = to_dto(&a);
+        assert!(!d.openable);
+        assert!(d.wid.is_none());
+        assert_eq!(d.status, "idle");
+        assert_eq!(d.folders, vec!["/tmp/x".to_string()]);
+
+        a.state.status = Status::Unknown;
+        assert_eq!(to_dto(&a).status, "unknown");
+
+        // With no work_dirs at all, folders is simply empty.
+        let bare = Agent::new("pid:1".into(), PathBuf::from("/tmp/y"));
+        assert!(to_dto(&bare).folders.is_empty());
+    }
+}

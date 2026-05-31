@@ -142,3 +142,74 @@ impl Agent {
             .unwrap_or_else(|| self.cwd.to_string_lossy().into_owned())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn agent(id: &str, cwd: &str) -> Agent {
+        Agent::new(id.into(), PathBuf::from(cwd))
+    }
+
+    #[test]
+    fn noise_folders() {
+        assert!(is_noise_folder("memory"));
+        assert!(is_noise_folder(".claude"));
+        assert!(!is_noise_folder("src"));
+        assert!(!is_noise_folder("Memory")); // case-sensitive
+    }
+
+    #[test]
+    fn new_defaults() {
+        let a = agent("@1", "/x");
+        assert_eq!(a.id, "@1");
+        assert_eq!(a.cwd, PathBuf::from("/x"));
+        assert!(a.window_id.is_none());
+        assert!(a.pids.is_empty());
+        assert!(a.project_name.is_none());
+        assert_eq!(a.completions, 0);
+        assert_eq!(a.state.status, Status::Unknown);
+    }
+
+    #[test]
+    fn openable_iff_window() {
+        let mut a = agent("pid:5", "/x");
+        assert!(!a.openable());
+        a.window_id = Some("@3".into());
+        assert!(a.openable());
+    }
+
+    #[test]
+    fn label_prefers_title() {
+        let mut a = agent("@1", "/home/u/proj");
+        assert_eq!(a.label(), "proj");
+        a.state.title = Some("Build the thing".into());
+        assert_eq!(a.label(), "Build the thing");
+    }
+
+    #[test]
+    fn label_falls_back_to_basename_then_full() {
+        assert_eq!(agent("@1", "/home/u/myproj").label(), "myproj");
+        // root has no file_name → full path
+        assert_eq!(agent("@1", "/").label(), "/");
+    }
+
+    #[test]
+    fn load_is_latest_sample() {
+        let mut a = agent("@1", "/x");
+        assert_eq!(a.load(), 0);
+        a.activity.extend([5u8, 20, 88]);
+        assert_eq!(a.load(), 88);
+    }
+
+    #[test]
+    fn just_completed_window() {
+        let mut a = agent("@1", "/x");
+        assert!(!a.just_completed(20)); // none
+        a.completed_at = Some(SystemTime::now());
+        assert!(a.just_completed(20));
+        a.completed_at = SystemTime::now().checked_sub(Duration::from_secs(100));
+        assert!(!a.just_completed(20));
+    }
+}

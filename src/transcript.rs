@@ -319,3 +319,188 @@ fn harvest_tool_use(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    fn tmp_dir() -> PathBuf {
+        let mut p = std::env::temp_dir();
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        p.push(format!("phasor-tr-{}-{}", std::process::id(), n));
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    fn parse_lines(lines: &[&str], root: &str) -> AgentState {
+        let dir = tmp_dir();
+        let file = dir.join("s.jsonl");
+        std::fs::write(&file, lines.join("\n")).unwrap();
+        let st = parse(&file, Path::new(root)).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        st
+    }
+
+    #[test]
+    fn encode_cwd_replaces_special_chars() {
+        assert_eq!(
+            encode_cwd(Path::new("/Users/m/src/app.rs_x.y")),
+            "-Users-m-src-app-rs-x-y"
+        );
+        assert_eq!(encode_cwd(Path::new("/a/b")), "-a-b");
+    }
+
+    #[test]
+    fn between_basic() {
+        assert_eq!(between("a<x>mid</x>b", "<x>", "</x>"), Some("mid"));
+        assert_eq!(between("a<x>mid", "<x>", "</x>"), None);
+        assert_eq!(between("no markers", "<x>", "</x>"), None);
+        assert_eq!(between("<x></x>", "<x>", "</x>"), Some(""));
+    }
+
+    #[test]
+    fn resolve_dir_variants() {
+        let root = Path::new("/work");
+        assert_eq!(resolve_dir("", root), None);
+        assert_eq!(
+            resolve_dir("/abs/path", root),
+            Some(PathBuf::from("/abs/path"))
+        );
+        assert_eq!(
+            resolve_dir("sub/x", root),
+            Some(PathBuf::from("/work/sub/x"))
+        );
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(resolve_dir("~/x", root), Some(home.join("x")));
+        }
+    }
+
+    #[test]
+    fn push_phrase_collapses_and_caps_length() {
+        let mut s = AgentState::default();
+        push_phrase(&mut s, "  hello   world  ");
+        assert_eq!(s.last_phrases.back().unwrap(), "hello world");
+        let long = "a".repeat(300);
+        push_phrase(&mut s, &long);
+        assert_eq!(s.last_phrases.back().unwrap().chars().count(), 200);
+    }
+
+    #[test]
+    fn push_phrase_keeps_only_last_four() {
+        let mut s = AgentState::default();
+        for i in 0..6 {
+            push_phrase(&mut s, &format!("p{i}"));
+        }
+        assert_eq!(s.last_phrases.len(), MAX_PHRASES);
+        assert_eq!(s.last_phrases.front().unwrap(), "p2");
+        assert_eq!(s.last_phrases.back().unwrap(), "p5");
+    }
+
+    #[test]
+    fn status_from_mtime_fresh_and_missing() {
+        let dir = tmp_dir();
+        let file = dir.join("f");
+        std::fs::write(&file, "x").unwrap();
+        assert_eq!(status_from_mtime(&file), Status::Working);
+        assert_eq!(status_from_mtime(&dir.join("nope")), Status::Unknown);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_tail_small_file_returns_all() {
+        let dir = tmp_dir();
+        let file = dir.join("f");
+        std::fs::write(&file, "line1\nline2\n").unwrap();
+        let (text, _mtime) = read_tail(&file).unwrap();
+        assert!(text.contains("line1") && text.contains("line2"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parse_full_transcript() {
+        let lines = [
+            r#"{"type":"ai-title","aiTitle":"My Task"}"#,
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"  hello   world  "}]}}"#,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/work/src/main.rs"}}]}}"#,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/readonly/zzz.txt"}}]}}"#,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TodoWrite","input":{"todos":[{"status":"completed"},{"status":"pending"}]}}]}}"#,
+            r#"{"type":"user","userType":"external","isSidechain":false,"entrypoint":"cli","message":{"content":"<command-name>/add-dir</command-name>\n<command-args>/extra/dir</command-args>"}}"#,
+            r#"{"type":"user","userType":"external","isSidechain":true,"entrypoint":"cli","message":{"content":"<command-name>/add-dir</command-name>\n<command-args>/secret/dir</command-args>"}}"#,
+            r#"this line is not valid json"#,
+            r#"{"type":"assistant","uuid":"turn-uuid","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"All done now. FINISHED COMPLETELY"}]}}"#,
+        ];
+        let st = parse_lines(&lines, "/work");
+
+        assert_eq!(st.title.as_deref(), Some("My Task"));
+        assert_eq!(st.todos, Some((1, 2)));
+        assert_eq!(st.final_marker.as_deref(), Some("turn-uuid"));
+        assert!(st.final_says_done);
+
+        assert!(st.work_dirs.contains(&PathBuf::from("/work"))); // root anchored
+        assert!(st.work_dirs.contains(&PathBuf::from("/work/src"))); // Edit parent
+        assert!(st.work_dirs.contains(&PathBuf::from("/extra/dir"))); // valid add-dir
+        assert!(!st.work_dirs.contains(&PathBuf::from("/readonly"))); // Read ignored
+        assert!(!st.work_dirs.contains(&PathBuf::from("/secret/dir"))); // sidechain rejected
+
+        assert_eq!(st.last_phrases.len(), 2);
+        assert_eq!(st.last_phrases.front().unwrap(), "hello world");
+        assert!(st
+            .last_phrases
+            .back()
+            .unwrap()
+            .contains("FINISHED COMPLETELY"));
+    }
+
+    #[test]
+    fn parse_root_always_anchored() {
+        let st = parse_lines(&["garbage"], "/only/root");
+        assert_eq!(st.work_dirs, vec![PathBuf::from("/only/root")]);
+    }
+
+    #[test]
+    fn parse_add_dir_rejects_sdk_and_non_external() {
+        // sdk entrypoint → rejected
+        let sdk = [
+            r#"{"type":"user","userType":"external","isSidechain":false,"entrypoint":"sdk-cli","message":{"content":"<command-name>/add-dir</command-name>\n<command-args>/x</command-args>"}}"#,
+        ];
+        assert!(!parse_lines(&sdk, "/r")
+            .work_dirs
+            .contains(&PathBuf::from("/x")));
+
+        // internal (non-external) user → rejected
+        let internal = [
+            r#"{"type":"user","userType":"internal","isSidechain":false,"entrypoint":"cli","message":{"content":"<command-name>/add-dir</command-name>\n<command-args>/y</command-args>"}}"#,
+        ];
+        assert!(!parse_lines(&internal, "/r")
+            .work_dirs
+            .contains(&PathBuf::from("/y")));
+
+        // content not starting with the command tag → rejected
+        let inline = [
+            r#"{"type":"user","userType":"external","isSidechain":false,"entrypoint":"cli","message":{"content":"please run <command-name>/add-dir</command-name> <command-args>/z</command-args>"}}"#,
+        ];
+        assert!(!parse_lines(&inline, "/r")
+            .work_dirs
+            .contains(&PathBuf::from("/z")));
+    }
+
+    #[test]
+    fn parse_no_todos_when_empty_list() {
+        let lines = [
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TodoWrite","input":{"todos":[]}}]}}"#,
+        ];
+        assert_eq!(parse_lines(&lines, "/r").todos, None);
+    }
+
+    #[test]
+    fn parse_end_turn_without_sentinel() {
+        let lines = [
+            r#"{"type":"assistant","uuid":"u9","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"done"}]}}"#,
+        ];
+        let st = parse_lines(&lines, "/r");
+        assert_eq!(st.final_marker.as_deref(), Some("u9"));
+        assert!(!st.final_says_done);
+    }
+}
