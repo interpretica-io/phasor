@@ -68,6 +68,12 @@ graph, clustered and wrapped in per-project contours:
 - `claude` (Claude Code CLI) on `PATH`
 - Rust toolchain (to build)
 
+## Platform support
+
+**macOS** and **Linux** — these are the supported platforms (CI builds and
+tests both). phasor relies on tmux, `ps`/`lsof` and a few POSIX bits, so it does
+not run natively on **Windows**; use **WSL2** there.
+
 ## Build & run
 
 ```sh
