@@ -256,18 +256,17 @@ fn run_scanner(tx: Sender<Vec<Agent>>) {
                         if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
                             continue;
                         }
-                        match path
+                        if let Some(name) = path
                             .parent()
                             .and_then(|p| p.file_name())
                             .map(|n| n.to_os_string())
                         {
-                            Some(name) => match dir_to_cwd.get(&name) {
+                            match dir_to_cwd.get(&name) {
                                 Some(cwd) => {
                                     dirty.insert(cwd.clone());
                                 }
                                 None => *force = true,
-                            },
-                            None => {}
+                            }
                         }
                     }
                 }

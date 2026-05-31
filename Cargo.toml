@@ -2,6 +2,14 @@
 name = "phasor"
 version = "0.4.0"
 edition = "2021"
+description = "A terminal and browser dashboard to monitor and orchestrate every AI coding agent on your machine, via tmux."
+authors = ["the phasor authors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/interpretica-io/phasor"
+homepage = "https://interpretica-io.github.io/phasor/"
+readme = "README.md"
+keywords = ["tmux", "dashboard", "tui", "agents", "claude"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 ratatui = "0.29"

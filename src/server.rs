@@ -308,6 +308,9 @@ async fn bridge_pty(socket: WebSocket, win: String) {
     // Browser input: binary = keystrokes, text = resize JSON. Ping/Pong are
     // handled by axum automatically.
     while let Some(Ok(msg)) = stream.next().await {
+        // The byte send is a side effect we deliberately keep in the body, not
+        // hoisted into a match guard.
+        #[allow(clippy::collapsible_match)]
         match msg {
             Message::Binary(b) => {
                 if itx.send(b.to_vec()).is_err() {

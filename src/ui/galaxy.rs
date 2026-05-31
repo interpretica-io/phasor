@@ -143,13 +143,13 @@ fn draw_node(
 
         // Tee on the card's bottom border, then one connector row of bus.
         put_str(buf, inner, bus_x, card.bottom() as i32 - 1, "┬", arrow_st);
-        let mut fy = card.bottom() as i32;
 
         // Show every folder (no truncation); rows past the cell are clipped by
         // put_str's bounds check.
         let n = folders.len();
         for (k, name) in folders.iter().enumerate() {
             let last = k + 1 == n;
+            let fy = card.bottom() as i32 + k as i32;
             let branch = if last {
                 "╰──▶ "
             } else {
@@ -158,7 +158,6 @@ fn draw_node(
             put_str(buf, inner, bus_x, fy, branch, arrow_st);
             let name_x = bus_x + branch.chars().count() as i32;
             put_str(buf, inner, name_x, fy, name, folder_style);
-            fy += 1;
         }
     }
 
@@ -273,6 +272,9 @@ fn draw_card(
             .fg(Color::Rgb(165, 185, 220))
             .add_modifier(Modifier::BOLD)
     };
+    // `row` indexes the glyph rows and doubles as the y offset, so a range
+    // loop is the natural form here.
+    #[allow(clippy::needless_range_loop)]
     for row in 0..3 {
         let mut line = String::new();
         for d in &digits {

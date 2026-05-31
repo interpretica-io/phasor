@@ -83,7 +83,7 @@ pub fn sessions(cwd: &Path) -> Vec<PathBuf> {
             v.push((t, path));
         }
     }
-    v.sort_by(|a, b| b.0.cmp(&a.0));
+    v.sort_by_key(|b| std::cmp::Reverse(b.0));
     v.into_iter().map(|(_, p)| p).collect()
 }
 
