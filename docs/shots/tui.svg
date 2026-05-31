@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 560" font-family="sans-serif">
+  <!-- window -->
+  <rect x="6" y="6" width="708" height="548" rx="16" fill="#0a0c14" stroke="#202a40"/>
+  <!-- title bar -->
+  <circle cx="34" cy="32" r="6" fill="#ff5f57"/>
+  <circle cx="54" cy="32" r="6" fill="#febc2e"/>
+  <circle cx="74" cy="32" r="6" fill="#28c840"/>
+  <circle cx="106" cy="32" r="7" fill="none" stroke="#6cb6ff" stroke-width="2"/>
+  <circle cx="106" cy="32" r="2" fill="#6cb6ff"/>
+  <text x="120" y="37" font-size="13" fill="#6b7794">phasor</text>
+  <line x1="6" y1="52" x2="714" y2="52" stroke="#202a40"/>
+
+  <!-- header -->
+  <circle cx="36" cy="84" r="8" fill="none" stroke="#6cb6ff" stroke-width="2.2"/>
+  <circle cx="36" cy="84" r="2.4" fill="#6cb6ff"/>
+  <text x="52" y="90" font-size="19" font-weight="700" fill="#6cb6ff">phasor</text>
+  <text x="688" y="90" text-anchor="end" font-size="14" fill="#7b8597">2 in tmux · 3 external</text>
+
+  <!-- ===== card 1 — Forge (working) ===== -->
+  <g transform="translate(32,114)">
+    <rect x="0" y="0" width="656" height="104" rx="12" fill="#0e1320" stroke="#18b257" stroke-opacity="0.7" stroke-width="1.5"/>
+    <!-- project chip -->
+    <rect x="16" y="-8" width="96" height="16" fill="#0a0c14"/>
+    <rect x="22" y="-4" width="9" height="9" fill="#18c25a" transform="rotate(45 26.5 0.5)"/>
+    <text x="40" y="5" font-size="12.5" font-weight="700" fill="#18c25a">Forge</text>
+    <!-- tmux tag -->
+    <rect x="566" y="-9" width="74" height="18" rx="9" fill="#0a0c14" stroke="#2a3550"/>
+    <text x="603" y="4" text-anchor="middle" font-size="11" fill="#6cb6ff">tmux</text>
+    <!-- big number -->
+    <text x="28" y="74" font-family="monospace" font-size="48" font-weight="700" fill="#7fb2ff">1</text>
+    <!-- status dot + title -->
+    <circle cx="92" cy="36" r="6" fill="#5ce08a"/>
+    <text x="108" y="41" font-size="15.5" font-weight="600" fill="#e6ebf5">Wire up the request router</text>
+    <!-- progress 5/8 -->
+    <g transform="translate(108,52)">
+      <rect x="0"   y="0" width="14" height="8" rx="2" fill="#6ec896"/>
+      <rect x="18"  y="0" width="14" height="8" rx="2" fill="#6ec896"/>
+      <rect x="36"  y="0" width="14" height="8" rx="2" fill="#6ec896"/>
+      <rect x="54"  y="0" width="14" height="8" rx="2" fill="#6ec896"/>
+      <rect x="72"  y="0" width="14" height="8" rx="2" fill="#6ec896"/>
+      <rect x="90"  y="0" width="14" height="8" rx="2" fill="#2a3142"/>
+      <rect x="108" y="0" width="14" height="8" rx="2" fill="#2a3142"/>
+      <rect x="126" y="0" width="14" height="8" rx="2" fill="#2a3142"/>
+      <text x="150" y="8" font-size="12" fill="#9aa6bd" font-family="monospace">5/8</text>
+    </g>
+    <text x="632" y="64" text-anchor="end" font-size="13" fill="#f0c75a">load 42%</text>
+    <!-- phrase -->
+    <text x="108" y="86" font-size="13" font-style="italic" fill="#6b7794">Build and test the new pipeline...</text>
+  </g>
+  <!-- card 1 folders -->
+  <g transform="translate(44,228)" font-family="monospace" font-size="13" fill="#9fb4d6">
+    <line x1="0" y1="10" x2="16" y2="10" stroke="#5f7da5"/>
+    <polygon points="16,6 24,10 16,14" fill="#5f7da5"/>
+    <text x="32" y="14">api</text>
+    <line x1="0" y1="32" x2="16" y2="32" stroke="#5f7da5"/>
+    <polygon points="16,28 24,32 16,36" fill="#5f7da5"/>
+    <text x="32" y="36">parser</text>
+  </g>
+
+  <!-- ===== card 2 — Backend (idle) ===== -->
+  <g transform="translate(32,300)">
+    <rect x="0" y="0" width="656" height="104" rx="12" fill="#0e1320" stroke="#2f6fe6" stroke-opacity="0.55" stroke-width="1.5"/>
+    <rect x="16" y="-8" width="104" height="16" fill="#0a0c14"/>
+    <rect x="22" y="-4" width="9" height="9" fill="#5b9dff" transform="rotate(45 26.5 0.5)"/>
+    <text x="40" y="5" font-size="12.5" font-weight="700" fill="#5b9dff">Backend</text>
+    <rect x="566" y="-9" width="74" height="18" rx="9" fill="#0a0c14" stroke="#2a3550"/>
+    <text x="603" y="4" text-anchor="middle" font-size="11" fill="#6cb6ff">tmux</text>
+    <text x="28" y="74" font-family="monospace" font-size="48" font-weight="700" fill="#8893a6">2</text>
+    <circle cx="92" cy="36" r="6" fill="none" stroke="#f0c75a" stroke-width="2"/>
+    <text x="108" y="41" font-size="15.5" font-weight="600" fill="#e6ebf5">Draft the API schema</text>
+    <g transform="translate(108,52)">
+      <rect x="0"   y="0" width="14" height="8" rx="2" fill="#6ec896"/>
+      <rect x="18"  y="0" width="14" height="8" rx="2" fill="#6ec896"/>
+      <rect x="36"  y="0" width="14" height="8" rx="2" fill="#2a3142"/>
+      <rect x="54"  y="0" width="14" height="8" rx="2" fill="#2a3142"/>
+      <rect x="72"  y="0" width="14" height="8" rx="2" fill="#2a3142"/>
+      <rect x="90"  y="0" width="14" height="8" rx="2" fill="#2a3142"/>
+      <text x="120" y="8" font-size="12" fill="#9aa6bd" font-family="monospace">2/6</text>
+    </g>
+    <text x="632" y="64" text-anchor="end" font-size="13" fill="#7b8597">load 8%</text>
+    <text x="108" y="86" font-size="13" font-style="italic" fill="#6b7794">Waiting on review...</text>
+  </g>
+  <!-- card 2 folders -->
+  <g transform="translate(44,414)" font-family="monospace" font-size="13" fill="#9fb4d6">
+    <line x1="0" y1="10" x2="16" y2="10" stroke="#5f7da5"/>
+    <polygon points="16,6 24,10 16,14" fill="#5f7da5"/>
+    <text x="32" y="14">schema</text>
+    <line x1="0" y1="32" x2="16" y2="32" stroke="#5f7da5"/>
+    <polygon points="16,28 24,32 16,36" fill="#5f7da5"/>
+    <text x="32" y="36">docs</text>
+  </g>
+
+  <!-- status bar -->
+  <text x="36" y="500" font-size="12.5" fill="#5b6478">3 external claudes also discovered (dimmed, monitor-only)</text>
+  <line x1="6" y1="516" x2="714" y2="516" stroke="#202a40"/>
+  <text x="36" y="538" font-size="13" fill="#7b8597">n new  ·  i instruct  ·  p projects  ·  open  ·  d kill  ·  q quit</text>
+</svg>

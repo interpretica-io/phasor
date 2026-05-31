@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 480" font-family="sans-serif">
+  <!-- window -->
+  <rect x="6" y="6" width="708" height="468" rx="16" fill="#080a0e" stroke="#202a40"/>
+  <!-- title bar -->
+  <circle cx="34" cy="32" r="6" fill="#ff5f57"/>
+  <circle cx="54" cy="32" r="6" fill="#febc2e"/>
+  <circle cx="74" cy="32" r="6" fill="#28c840"/>
+  <text x="106" y="37" font-size="13" fill="#6b7794" font-family="monospace">localhost:7878</text>
+  <line x1="6" y1="52" x2="714" y2="52" stroke="#202a40"/>
+
+  <!-- header -->
+  <circle cx="36" cy="84" r="8" fill="none" stroke="#6cb6ff" stroke-width="2.2"/>
+  <circle cx="36" cy="84" r="2.4" fill="#6cb6ff"/>
+  <text x="52" y="90" font-size="19" font-weight="700" fill="#e6ebf5">phasor</text>
+  <text x="688" y="90" font-size="13" text-anchor="end" fill="#7b8597">2 working&#160;&#160;&#183;&#160;&#160;2 idle&#160;&#160;&#183;&#160;&#160;1 external</text>
+  <circle cx="430" cy="85" r="5" fill="#5ce08a"/>
+  <text x="446" y="90" font-size="12" fill="#7b8597">live</text>
+
+  <!-- ===== contours ===== -->
+  <ellipse cx="250" cy="267" rx="101" ry="56" transform="rotate(-33 250 267)"
+           fill="#18c25a" fill-opacity="0.10" stroke="#18c25a" stroke-opacity="0.32" stroke-width="1.5"/>
+  <ellipse cx="537" cy="257" rx="90" ry="52" transform="rotate(-41 537 257)"
+           fill="#5b9dff" fill-opacity="0.10" stroke="#5b9dff" stroke-opacity="0.32" stroke-width="1.5"/>
+  <text x="214" y="200" font-size="11.5" font-weight="800" letter-spacing="1.5" fill="#18c25a">FORGE</text>
+  <text x="520" y="176" font-size="11.5" font-weight="800" letter-spacing="1.5" fill="#5b9dff">BACKEND</text>
+
+  <!-- ===== links ===== -->
+  <line x1="200" y1="300" x2="300" y2="235" stroke="#5ce08a" stroke-opacity="0.40" stroke-width="2.6"/>
+  <line x1="500" y1="290" x2="575" y2="225" stroke="#5b9dff" stroke-opacity="0.40" stroke-width="2.2"/>
+  <line x1="200" y1="300" x2="385" y2="392" stroke="#7e879c" stroke-opacity="0.22" stroke-width="1.3"/>
+
+  <!-- ===== nodes ===== -->
+  <!-- A: working, progress ring -->
+  <circle cx="200" cy="300" r="32" fill="none" stroke="#243049" stroke-width="3"/>
+  <circle cx="200" cy="300" r="32" fill="none" stroke="#5ce08a" stroke-width="3" stroke-linecap="round"
+          stroke-dasharray="126 201" transform="rotate(-90 200 300)"/>
+  <circle cx="200" cy="300" r="26" fill="#5ce08a" stroke="#ffffff" stroke-opacity="0.18" stroke-width="1.5"/>
+  <text x="200" y="346" text-anchor="middle" font-size="12.5" font-family="monospace" fill="#9fb4d6">router</text>
+  <!-- B: working -->
+  <circle cx="300" cy="235" r="17" fill="#5ce08a" stroke="#ffffff" stroke-opacity="0.18" stroke-width="1.5"/>
+  <text x="300" y="270" text-anchor="middle" font-size="12.5" font-family="monospace" fill="#9fb4d6">api</text>
+  <!-- C: idle -->
+  <circle cx="500" cy="290" r="22" fill="#f0c75a" stroke="#ffffff" stroke-opacity="0.18" stroke-width="1.5"/>
+  <text x="500" y="330" text-anchor="middle" font-size="12.5" font-family="monospace" fill="#9fb4d6">schema</text>
+  <!-- D: idle -->
+  <circle cx="575" cy="225" r="14" fill="#f0c75a" stroke="#ffffff" stroke-opacity="0.18" stroke-width="1.5"/>
+  <text x="575" y="257" text-anchor="middle" font-size="12.5" font-family="monospace" fill="#9fb4d6">docs</text>
+  <!-- E: external (dimmed) -->
+  <circle cx="385" cy="392" r="13" fill="#7e879c" fill-opacity="0.65" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1.5"/>
+  <text x="385" y="422" text-anchor="middle" font-size="12.5" font-family="monospace" fill="#5b6478">scratch</text>
+
+  <!-- hint -->
+  <text x="360" y="452" text-anchor="middle" font-size="12" fill="#5b6478">drag · zoom · click a tmux node to open its live terminal</text>
+</svg>
