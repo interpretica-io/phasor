@@ -48,17 +48,19 @@ folder **names**, never full paths. The selected card is highlighted.
 3 s, and the web node celebrates with a burst + a pop tinted to the hue of that
 last answer, then settles back.
 
-## Screenshots
+## Mockups
+
+> Representative mockups, not live captures.
 
 The terminal dashboard — one card per agent, project-tinted, with progress,
 activity load and the folders each is touching:
 
-![phasor terminal dashboard](docs/shots/tui.png)
+![phasor terminal dashboard](docs/mockups/tui.png)
 
 The browser dashboard (`phasor serve`) — the same agents as a force-directed
 graph, clustered and wrapped in per-project contours:
 
-![phasor browser dashboard](docs/shots/web.png)
+![phasor browser dashboard](docs/mockups/web.png)
 
 ## Requirements
 
