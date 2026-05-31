@@ -1,0 +1,61 @@
+name: Release
+
+# Push a tag like `v0.3.0` to build release binaries for Linux and macOS and
+# publish them as a GitHub Release:
+#   git tag v0.3.0 && git push origin v0.3.0
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the release and upload assets
+
+jobs:
+  release:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: macos-latest, target: x86_64-apple-darwin }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          name="phasor-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          bin="target/${{ matrix.target }}/release/phasor"
+          strip "$bin" || true
+          mkdir "$name"
+          cp "$bin" "$name/"
+          cp README.md "$name/" 2>/dev/null || true
+          tar -czf "$name.tar.gz" "$name"
+          shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+          echo "ASSET=$name.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Publish to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.ASSET }}
+            ${{ env.ASSET }}.sha256
+          fail_on_unmatched_files: true
+          generate_release_notes: true
