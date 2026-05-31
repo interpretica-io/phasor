@@ -9,8 +9,11 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+/// One configured project: a directory prefix tagged with a display name and
+/// a group colour.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Project {
+    /// Display name shown on cards / contours.
     pub name: String,
     /// Absolute directory prefix (agents under it belong to this project).
     pub prefix: String,

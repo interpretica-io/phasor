@@ -12,8 +12,11 @@ use std::process::Command;
 
 /// A running Claude Code CLI process.
 pub struct Proc {
+    /// Process id.
     pub pid: u32,
+    /// Parent process id (used to attribute a claude to its tmux pane).
     pub ppid: u32,
+    /// Working directory the process was launched in.
     pub cwd: PathBuf,
 }
 

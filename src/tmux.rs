@@ -25,10 +25,13 @@ pub fn session() -> &'static str {
 /// (e.g. `@3`) that survives reordering.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Window {
+    /// Stable tmux window id (e.g. `@3`).
     pub id: String,
+    /// Window name (phasor sets it to the agent's title).
     pub name: String,
 }
 
+/// A `tmux` command pre-pointed at phasor's dedicated socket (`-L <socket>`).
 fn tmux() -> Command {
     let mut c = Command::new("tmux");
     c.args(["-L", socket()]);
@@ -250,6 +253,8 @@ pub fn get_window_sent(window_id: &str) -> Option<String> {
     (!t.is_empty()).then(|| t.to_string())
 }
 
+/// Record the final-turn marker we last auto-sent for, so the same completion
+/// isn't instructed twice (`@phasor_sent` dedup option).
 pub fn set_window_sent(window_id: &str, marker: &str) {
     let _ = run(&["set-option", "-w", "-t", window_id, "@phasor_sent", marker]);
 }
@@ -287,10 +292,15 @@ pub fn list_windows() -> Result<Vec<Window>> {
 /// An agent window with its active pane's cwd, pane process pid, and the claude
 /// session id we tagged it with (if any).
 pub struct WinInfo {
+    /// tmux window id.
     pub id: String,
+    /// Active pane's current path.
     pub cwd: std::path::PathBuf,
+    /// PID of the active pane's process (used to match the claude process).
     pub pane_pid: u32,
+    /// claude session id tagged on the window (`@phasor_session`), if any.
     pub session_id: Option<String>,
+    /// Queued auto-instruction on the window (`@phasor_pending`), if any.
     pub pending: Option<String>,
 }
 

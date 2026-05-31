@@ -15,17 +15,23 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use std::time::Duration;
 
-/// A clickable region (the core of a galaxy) mapping screen cells to an agent.
+/// A clickable region (an agent's card) mapping screen cells to an agent index.
 #[derive(Clone, Copy)]
 pub struct HitBox {
+    /// Index of the agent this region belongs to.
     pub idx: usize,
+    /// Left column (inclusive).
     pub left: u16,
+    /// Right column (exclusive).
     pub right: u16,
+    /// Top row (inclusive).
     pub top: u16,
+    /// Bottom row (exclusive).
     pub bottom: u16,
 }
 
 impl HitBox {
+    /// Whether the cell at `(col, row)` falls inside this region.
     pub fn contains(&self, col: u16, row: u16) -> bool {
         col >= self.left && col < self.right && row >= self.top && row < self.bottom
     }
@@ -65,6 +71,7 @@ pub fn render(f: &mut Frame, app: &App) -> Vec<HitBox> {
     hits
 }
 
+/// Draw the top header: the brand and the in-tmux / external agent counts.
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
     let external = app.agents.iter().filter(|a| !a.openable()).count();
     let openable = app.agents.len() - external;
@@ -140,6 +147,7 @@ fn render_status(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(right).alignment(Alignment::Right), area);
 }
 
+/// Draw the placeholder shown when no agents have been discovered yet.
 fn render_empty(f: &mut Frame, area: Rect) {
     let msg = Paragraph::new(vec![
         Line::raw(""),
@@ -153,6 +161,7 @@ fn render_empty(f: &mut Frame, area: Rect) {
     f.render_widget(msg, area);
 }
 
+/// Draw a centered single-line input popup (used for new-agent / instruct).
 fn render_input_popup(f: &mut Frame, area: Rect, title: &str, input: &str) {
     let w = area.width.saturating_sub(8).min(90);
     let h = 3;

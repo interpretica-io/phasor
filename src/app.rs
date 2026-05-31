@@ -13,22 +13,35 @@ use std::time::Instant;
 
 /// Interaction mode of the dashboard.
 pub enum Mode {
+    /// Normal navigation — keys select/open/kill agents.
     Normal,
     /// Entering a working directory for a new agent.
-    NewAgent { input: String },
+    NewAgent {
+        /// The directory text typed so far.
+        input: String,
+    },
     /// Entering an instruction to auto-send when the agent next finishes.
-    Instruct { input: String },
+    Instruct {
+        /// The instruction text typed so far.
+        input: String,
+    },
 }
 
+/// All dashboard state: the agent list, selection, current mode, and the
+/// one-shot flags the main loop acts on (attach / edit-projects).
 pub struct App {
     /// Agents sorted deterministically by cwd, refreshed from the scanner.
     pub agents: Vec<Agent>,
+    /// Index of the currently selected agent in `agents`.
     pub selected: usize,
+    /// Current interaction mode (normal, or a text-input popup).
     pub mode: Mode,
     /// Transient status message (shown briefly, then the bar reverts to the
     /// selected-agent context). Set via [`App::note`].
     pub status: String,
+    /// When `status` was set, used to expire the transient message.
     pub status_at: Instant,
+    /// Set to request the dashboard exit after the current frame.
     pub should_quit: bool,
     /// When set, the main loop should suspend the TUI and attach this window.
     pub attach_to: Option<String>,
@@ -42,6 +55,8 @@ pub struct App {
 }
 
 impl App {
+    /// Build the app: take an initial synchronous snapshot and start the
+    /// background scanner whose updates stream in via [`App::drain_updates`].
     pub fn new() -> Self {
         let agents = scan::snapshot();
         let rx = scan::spawn();
@@ -109,6 +124,7 @@ impl App {
         }
     }
 
+    /// Handle a key while in [`Mode::Normal`] (navigation, open, kill, etc.).
     fn on_key_normal(&mut self, key: KeyEvent) {
         if key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.code, KeyCode::Char('c')) {
             self.should_quit = true;
@@ -157,6 +173,7 @@ impl App {
         }
     }
 
+    /// Move the selection by `delta` positions, clamped to the agent list.
     fn move_selection(&mut self, delta: isize) {
         let n = self.agents.len();
         if n == 0 {
@@ -188,6 +205,7 @@ impl App {
         }
     }
 
+    /// Kill the selected agent's tmux window (no-op for external claudes).
     fn kill_selected(&mut self) {
         match self.agents.get(self.selected) {
             Some(a) if a.openable() => {

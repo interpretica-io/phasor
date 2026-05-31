@@ -28,40 +28,62 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use tokio::sync::mpsc;
 
+/// JSON view of an [`Agent`] sent to the browser dashboard.
 #[derive(Serialize)]
 struct AgentDto {
+    /// Display label (session title, else cwd basename).
     label: String,
+    /// Stable node id.
     id: String,
+    /// Working directory (absolute).
     cwd: String,
+    /// Whether the agent's terminal can be opened (it's in phasor's tmux).
     openable: bool,
+    /// tmux window id, when openable.
     wid: Option<String>,
+    /// `working` / `idle` / `unknown`.
     status: String,
+    /// Number of claude processes backing the agent.
     procs: usize,
+    /// Todo progress as `[done, total]`, if known.
     todos: Option<[usize; 2]>,
+    /// Beginning of the most recent assistant phrase.
     phrase: Option<String>,
+    /// Absolute paths of folders the agent has touched.
     folders: Vec<String>,
+    /// Current activity load (0–100%).
     load: u8,
+    /// Recent activity load samples (newest last).
     activity: Vec<u8>,
+    /// Completion counter — bumps once per finished task (drives the burst).
     seq: u64,
+    /// Queued auto-instruction, if any.
     pending: Option<String>,
     /// Project (from `~/.phasor/projects.json`) the agent's cwd falls under.
     project: Option<String>,
+    /// The matched project's group colour (hex), if any.
     pcolor: Option<String>,
 }
 
+/// Top-level `/api/agents` response: the agent list plus headline counts.
 #[derive(Serialize)]
 struct Payload {
+    /// Count of openable (in-tmux) agents.
     openable: usize,
+    /// Count of external (monitor-only) agents.
     external: usize,
+    /// The agents themselves.
     agents: Vec<AgentDto>,
 }
 
 /// Query string `?w=@N` shared by the WebSocket and instruct endpoints.
 #[derive(Deserialize)]
 struct WParam {
+    /// Target tmux window id (e.g. `@3`).
     w: Option<String>,
 }
 
+/// Convert an [`Agent`] into its JSON [`AgentDto`] (dedup + filter folders).
 fn to_dto(a: &Agent) -> AgentDto {
     // Full (absolute) paths — clustering/overlap must compare canonical paths,
     // not basenames (two unrelated `src` dirs are not the same folder). The UI
@@ -108,6 +130,8 @@ fn to_dto(a: &Agent) -> AgentDto {
     }
 }
 
+/// Shared snapshot of the latest agents, written by the scanner pump thread
+/// and read by the request handlers.
 type Shared = Arc<RwLock<Vec<Agent>>>;
 
 /// Run the web dashboard until the process is killed.
@@ -152,10 +176,12 @@ pub fn serve(port: u16) -> Result<()> {
     })
 }
 
+/// Serve the embedded single-page dashboard.
 async fn index() -> Html<&'static str> {
     Html(INDEX_HTML)
 }
 
+/// `GET /api/agents` — the current agents as JSON.
 async fn agents(State(latest): State<Shared>) -> Json<Payload> {
     let agents = latest.read().unwrap();
     let openable = agents.iter().filter(|a| a.openable()).count();
@@ -166,6 +192,7 @@ async fn agents(State(latest): State<Shared>) -> Json<Payload> {
     })
 }
 
+/// `GET /api/projects` — the configured projects as JSON.
 async fn projects_get() -> Json<Vec<config::Project>> {
     Json(config::load())
 }
@@ -310,6 +337,8 @@ async fn bridge_pty(socket: WebSocket, win: String) {
     let _ = read_thread.join();
 }
 
+/// Parse a `{"resize":{"cols":N,"rows":M}}` message into `(cols, rows)`,
+/// rejecting sizes too small for the agent's TUI.
 fn parse_resize(t: &str) -> Option<(u16, u16)> {
     let v: serde_json::Value = serde_json::from_str(t).ok()?;
     let r = v.get("resize")?;
@@ -328,4 +357,5 @@ fn valid_window(w: &str) -> bool {
     w.len() > 1 && w.starts_with('@') && w[1..].chars().all(|c| c.is_ascii_digit())
 }
 
+/// The embedded browser dashboard (D3 graph, xterm.js terminal, editors).
 const INDEX_HTML: &str = include_str!("server_index.html");

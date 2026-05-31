@@ -35,6 +35,7 @@ pub struct AgentState {
     pub todos: Option<(usize, usize)>,
     /// Timestamp of the last transcript activity.
     pub last_activity: Option<SystemTime>,
+    /// Liveness derived from how recently the transcript changed.
     pub status: Status,
     /// Identifier (uuid) of the most recent completed turn (`stop_reason ==
     /// "end_turn"`). A change in this marks a freshly completed task.
@@ -72,9 +73,11 @@ pub struct Agent {
     pub pending: Option<String>,
     /// Project (from `~/.phasor/projects.json`) this agent's cwd falls under.
     pub project_name: Option<String>,
+    /// The matched project's group colour (hex), if any.
     pub project_color: Option<String>,
     /// Resolved transcript file, once located.
     pub transcript: Option<PathBuf>,
+    /// State parsed from the transcript (title, phrases, todos, status, …).
     pub state: AgentState,
     /// Recent activity load samples (0-100%), newest last. Derived from how
     /// fast the transcript is growing.
@@ -89,6 +92,8 @@ pub struct Agent {
 }
 
 impl Agent {
+    /// Create a bare agent with the given node id and cwd; all derived state
+    /// (transcript, activity, project, …) is filled in later by the scanner.
     pub fn new(id: String, cwd: PathBuf) -> Self {
         Self {
             id,

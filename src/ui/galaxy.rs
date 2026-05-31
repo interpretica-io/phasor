@@ -10,6 +10,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Widget};
 
+/// Max characters of the last phrase shown on a card.
 const PHRASE_LEN: usize = 60;
 /// How long the "task completed" highlight lingers.
 const COMPLETE_FLASH_SECS: u64 = 3;
@@ -28,15 +29,24 @@ const BIG_DIGITS: [[&str; 3]; 10] = [
     ["┏━┓", "┗━┫", "┗━┛"], // 9
 ];
 
+/// Filled portion of the progress bar.
 const C_BAR_FILL: Color = Color::Rgb(110, 200, 150);
+/// Empty track of the progress bar.
 const C_BAR_EMPTY: Color = Color::Rgb(70, 75, 95);
 
+/// Folder arrows (unselected).
 const C_ARROW: Color = Color::Rgb(95, 125, 165);
+/// Folder arrows on the selected card.
 const C_ARROW_SEL: Color = Color::Rgb(120, 200, 255);
+/// Folder names.
 const C_FOLDER: Color = Color::Rgb(150, 180, 220);
+/// Card border when selected.
 const C_BORDER_SEL: Color = Color::Rgb(120, 205, 255);
+/// Card border for an openable (in-tmux) agent.
 const C_BORDER_TMUX: Color = Color::Rgb(80, 135, 175); // openable (in tmux)
+/// Card border for an external (monitor-only) agent.
 const C_BORDER_EXT: Color = Color::Rgb(64, 66, 82); // external (monitor only)
+/// Colour of the `⧉ tmux` corner tag.
 const C_TAG_TMUX: Color = Color::Rgb(110, 200, 245);
 
 /// Draw all agents as a node field within `area`. Returns clickable cards.
@@ -68,6 +78,9 @@ pub fn draw(buf: &mut Buffer, area: Rect, agents: &[Agent], selected: usize) -> 
     hits
 }
 
+/// Draw one agent within its grid cell: the card plus the folder arrows below
+/// it. Returns the card's clickable [`HitBox`], or `None` if the cell is too
+/// small to render.
 fn draw_node(
     buf: &mut Buffer,
     region: Rect,
@@ -148,6 +161,8 @@ fn draw_node(
     })
 }
 
+/// Draw the agent card itself: border (+ project chip), big quick-jump number,
+/// status dot, name, progress bar, activity load, and last phrase.
 fn draw_card(
     buf: &mut Buffer,
     card: Rect,
@@ -340,6 +355,7 @@ fn parse_hex(s: &str) -> Option<Color> {
     Some(Color::Rgb(r, g, b))
 }
 
+/// Truncate `s` to at most `max` characters (no ellipsis).
 fn clip(s: &str, max: usize) -> String {
     if max == 0 {
         return String::new();
@@ -347,6 +363,7 @@ fn clip(s: &str, max: usize) -> String {
     s.chars().take(max).collect()
 }
 
+/// Collapse whitespace in `s` and truncate to `max` characters with an ellipsis.
 fn clip_phrase(s: &str, max: usize) -> String {
     let one: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
     if max == 0 {

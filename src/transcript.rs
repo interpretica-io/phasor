@@ -14,6 +14,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+/// How many recent assistant phrases to retain per agent.
 const MAX_PHRASES: usize = 4;
 /// How much of the (potentially huge) transcript tail to parse per poll.
 /// (Larger than it used to be so more touched folders are seen; the scanner
@@ -252,6 +253,8 @@ fn resolve_dir(arg: &str, root: &Path) -> Option<PathBuf> {
     Some(p)
 }
 
+/// Append an assistant phrase (whitespace-collapsed, length-clamped) to the
+/// agent's ring of recent phrases, evicting the oldest past [`MAX_PHRASES`].
 fn push_phrase(state: &mut AgentState, txt: &str) {
     // Collapse whitespace and clamp length for display.
     let one_line: String = txt.split_whitespace().collect::<Vec<_>>().join(" ");

@@ -29,11 +29,17 @@ const LOAD_FULL_BPS: f32 = 1200.0;
 /// A discovered node: one tmux window OR one external claude process. Agents
 /// are NOT grouped by folder.
 struct Node {
+    /// Stable node identity (tmux window id, or `pid:<n>` for external).
     id: String,
+    /// Working directory.
     cwd: PathBuf,
+    /// tmux window id when phasor manages this node; `None` for external.
     window_id: Option<String>,
+    /// claude PIDs detected for this node.
     pids: Vec<u32>,
+    /// claude session id tagged on the window (`@phasor_session`), if any.
     session_id: Option<String>,
+    /// Pending auto-instruction read from the window (`@phasor_pending`).
     pending: Option<String>,
 }
 
@@ -116,6 +122,7 @@ fn apply_project(a: &mut Agent, projects: &[config::Project]) {
     }
 }
 
+/// Build a fresh [`Agent`] from a discovered [`Node`] (no transcript parsed yet).
 fn node_to_agent(n: Node) -> Agent {
     let mut a = Agent::new(n.id, n.cwd);
     a.pids = n.pids;

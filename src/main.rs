@@ -1,5 +1,29 @@
-//! phasor — a terminal dashboard that orchestrates multiple Claude Code
-//! agents, each running in its own tmux window, shown as a live block diagram.
+//! phasor — a terminal dashboard that monitors and orchestrates every running
+//! Claude Code agent on the machine.
+//!
+//! Each agent is one tmux window (managed by phasor) or one external `claude`
+//! process (discovered, monitor-only). The dashboard draws them as a field of
+//! live cards (TUI) and, via [`server`], a force-directed graph in the browser.
+//!
+//! # Architecture
+//!
+//! - [`discover`] finds running `claude` processes (`ps` + `lsof`).
+//! - [`transcript`] resolves and tails each agent's Claude Code transcript
+//!   (`~/.claude/projects/<encoded-cwd>/<session>.jsonl`) for title, todos,
+//!   phrases, touched folders, status and task-completion markers.
+//! - [`tmux`] wraps the `tmux` CLI on phasor's own socket/session.
+//! - [`scan`] fuses the three into a stream of [`agent::Agent`] snapshots on a
+//!   background thread; both front-ends consume it without blocking.
+//! - [`config`] holds the projects config (`~/.phasor/projects.json`).
+//! - [`app`] + [`ui`] are the ratatui TUI; [`server`] is the axum web app.
+//!
+//! # Commands
+//!
+//! `phasor` (TUI) · `serve [port]` (web) · `exec`/`start CMD…` (spawn a window)
+//! · `doctor [cwd]` · `render [WxH]`.
+
+// Documentation coverage is enforced (warn-only) for every item, public or not.
+#![warn(clippy::missing_docs_in_private_items)]
 
 mod agent;
 mod app;
@@ -27,6 +51,7 @@ use std::io::{self, Stdout};
 use std::time::Duration;
 use ui::HitBox;
 
+/// The concrete ratatui terminal type used throughout the dashboard.
 type Term = Terminal<CrosstermBackend<Stdout>>;
 
 fn main() -> Result<()> {
@@ -77,6 +102,7 @@ fn run_dashboard(initial_attach: Option<String>) -> Result<()> {
     res
 }
 
+/// Enter raw mode + the alternate screen and return a ready ratatui terminal.
 fn setup_terminal() -> Result<Term> {
     install_panic_hook();
     enable_raw_mode()?;
@@ -96,6 +122,7 @@ fn install_panic_hook() {
     }));
 }
 
+/// Leave the alternate screen and raw mode, restoring the normal terminal.
 fn restore_terminal(terminal: &mut Term) -> Result<()> {
     disable_raw_mode()?;
     execute!(
@@ -107,6 +134,8 @@ fn restore_terminal(terminal: &mut Term) -> Result<()> {
     Ok(())
 }
 
+/// The dashboard main loop: drain scanner updates, render, and handle input —
+/// suspending to attach a tmux window or to edit the projects config on demand.
 fn run(terminal: &mut Term, initial_attach: Option<String>) -> Result<()> {
     let mut app = App::new();
     app.attach_to = initial_attach;
