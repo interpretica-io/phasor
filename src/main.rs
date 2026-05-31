@@ -20,7 +20,8 @@
 //! # Commands
 //!
 //! `phasor` (TUI) · `serve [port]` (web) · `exec`/`start CMD…` (spawn a window)
-//! · `doctor [cwd]` · `render [WxH]`.
+//! · `save`/`restore [file]` (snapshot & recreate sessions) · `doctor [cwd]`
+//! · `render [WxH]`.
 
 // Documentation coverage is enforced (warn-only) for every item, public or not.
 #![warn(clippy::missing_docs_in_private_items)]
@@ -31,6 +32,7 @@ mod config;
 mod discover;
 mod scan;
 mod server;
+mod session;
 mod tmux;
 mod transcript;
 mod ui;
@@ -63,6 +65,8 @@ fn main() -> Result<()> {
         Some("render") => return render_once(),
         Some("exec") => return exec_window(),
         Some("start") => return start_window(),
+        Some("save") => return save_sessions(),
+        Some("restore") => return restore_sessions(),
         Some("serve") => {
             let port = std::env::args()
                 .nth(2)
@@ -81,6 +85,8 @@ fn main() -> Result<()> {
                  phasor serve [port]    web dashboard (default 7878)\n  \
                  phasor start CMD…      run CMD in a new window and open it\n  \
                  phasor exec  CMD…      run CMD in a new window (background)\n  \
+                 phasor save  [file]    snapshot managed sessions (cwd + id)\n  \
+                 phasor restore [file]  recreate the saved sessions\n  \
                  phasor doctor [cwd]    diagnostics"
             );
             std::process::exit(2);
@@ -254,6 +260,116 @@ fn exec_window() -> Result<()> {
 fn start_window() -> Result<()> {
     let (win, _shown) = spawn_exec_window("start")?;
     run_dashboard(Some(win.id))
+}
+
+/// Resolve the snapshot file: a positional arg overrides `~/.phasor/session.json`.
+fn session_arg_path() -> Result<std::path::PathBuf> {
+    match std::env::args().nth(2) {
+        Some(a) => Ok(std::path::PathBuf::from(a)),
+        None => session::path().context("no home directory"),
+    }
+}
+
+/// `phasor save [file]`: snapshot every agent (cwd + claude session id) so it
+/// can be recreated later. Sources the full discovery, so **external** (non-tmux)
+/// claudes are saved too: the session id comes from the `@phasor_session` option
+/// for managed agents, or from the resolved transcript filename for external
+/// ones. Agents with no resolvable session (no transcript yet) are skipped.
+fn save_sessions() -> Result<()> {
+    let mut seen = std::collections::HashSet::new();
+    let agents: Vec<session::SavedAgent> = scan::snapshot()
+        .into_iter()
+        .filter_map(|a| {
+            let session_id = a.session_id.clone().or_else(|| {
+                a.transcript
+                    .as_ref()
+                    .and_then(|p| p.file_stem())
+                    .map(|s| s.to_string_lossy().into_owned())
+            })?;
+            if !seen.insert(session_id.clone()) {
+                return None; // de-dup identical sessions
+            }
+            Some(session::SavedAgent {
+                cwd: a.cwd.clone(),
+                session_id,
+                title: Some(a.label()),
+                managed: a.openable(),
+            })
+        })
+        .collect();
+    let path = session_arg_path()?;
+    session::save_to(&path, &agents)?;
+    let managed = agents.iter().filter(|a| a.managed).count();
+    println!(
+        "phasor: saved {} session(s) — {} managed, {} external — to {}",
+        agents.len(),
+        managed,
+        agents.len() - managed,
+        path.display()
+    );
+    Ok(())
+}
+
+/// `phasor restore [file]`: recreate the saved agents — one tmux window each,
+/// resuming the claude session when its transcript still exists, else starting
+/// a fresh session pinned to the same id. Sessions already open are skipped.
+fn restore_sessions() -> Result<()> {
+    let path = session_arg_path()?;
+    let saved = session::load_from(&path)?;
+    if saved.is_empty() {
+        println!("phasor: nothing to restore ({} is empty)", path.display());
+        return Ok(());
+    }
+    tmux::ensure_session().context("failed to create phasor tmux session")?;
+
+    // Skip sessions that are already open so restore is idempotent.
+    let open: std::collections::HashSet<String> = tmux::list_windows_with_cwd()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|w| w.session_id)
+        .collect();
+
+    let (mut restored, mut skipped, mut missing) = (0u32, 0u32, 0u32);
+    for a in &saved {
+        if open.contains(&a.session_id) {
+            skipped += 1;
+            continue;
+        }
+        if !a.cwd.is_dir() {
+            eprintln!("  skip (directory gone): {}", a.cwd.display());
+            missing += 1;
+            continue;
+        }
+        let name = a.title.clone().unwrap_or_else(|| {
+            a.cwd
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "agent".into())
+        });
+        // Resume the existing conversation if its transcript is still on disk;
+        // otherwise launch a fresh session pinned to the same id.
+        let has_transcript = transcript::project_dir(&a.cwd)
+            .map(|d| d.join(format!("{}.jsonl", a.session_id)).exists())
+            .unwrap_or(false);
+        let flag = if has_transcript {
+            "--resume"
+        } else {
+            "--session-id"
+        };
+        let cmd = format!("claude {flag} {}", shell_quote(&a.session_id));
+        match tmux::new_window(&name, &a.cwd.to_string_lossy(), &cmd) {
+            Ok(win) => {
+                let _ = tmux::set_window_session(&win.id, &a.session_id);
+                restored += 1;
+            }
+            Err(e) => eprintln!("  failed to restore {}: {e}", a.cwd.display()),
+        }
+    }
+    println!(
+        "phasor: restored {restored} session(s) — {skipped} already open, {missing} missing dir(s) — from {}",
+        path.display()
+    );
+    Ok(())
 }
 
 /// Wrap an argument in single quotes for safe shell execution.

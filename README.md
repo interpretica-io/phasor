@@ -208,6 +208,26 @@ into the phasor dashboard, where the command is now a card. Select it and press
 `Enter` (or click) to re-open ("maximize") it. `q` quits the dashboard; the
 command keeps running in the phasor session.
 
+## Save & restore
+
+tmux keeps your agents alive across phasor restarts, but **not** across a reboot
+or `tmux kill-server`. Snapshot the managed agents and bring them back later:
+
+```sh
+phasor save           # → ~/.phasor/session.json  (cwd + claude session id each)
+phasor restore        # recreate a window per saved agent, resuming each session
+```
+
+`save` records every agent with a resolvable session — both phasor-managed
+agents **and external claudes** you started in a plain terminal (their session
+id is read from the transcript). `restore` opens one tmux window per entry and
+**resumes** that claude session — the on-disk transcript is reused, so the
+conversations come back, not just empty terminals. Restored agents (including
+the formerly external ones) come back as **managed** phasor windows. A session
+that's already open is skipped (restore is idempotent), and a saved directory
+that no longer exists is left out. Both accept an optional file path to use
+instead of the default.
+
 ## Diagnostics
 
 ```sh
@@ -268,7 +288,8 @@ src/
 Working today: launch agents, per-agent live cards with auto-detected
 work-dirs, progress, phrases, status and activity load, click-to-open, kill,
 projects (prefix→name+colour, editable in both UIs), queued auto-instructions,
-a browser dashboard with live terminals.
+a browser dashboard with live terminals, and `save`/`restore` of sessions
+across reboots.
 
-Planned: persist the agent↔window map across restarts, in-panel terminal
-preview (`capture-pane`), adopting pre-existing phasor windows on startup.
+Planned: in-panel terminal preview (`capture-pane`), adopting pre-existing
+phasor windows on startup.
