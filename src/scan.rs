@@ -6,7 +6,7 @@
 //! the process/window set. `snapshot` is a one-off synchronous scan.
 
 use crate::agent::{Agent, Status};
-use crate::{config, discover, transcript, tmux};
+use crate::{config, discover, tmux, transcript};
 use notify::{RecursiveMode, Watcher};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsString;
@@ -97,7 +97,11 @@ fn discover_nodes() -> Vec<Node> {
         idxs.sort_by_key(|&i| nodes[i].pids.first().copied().unwrap_or(0));
         let files = transcript::sessions(&cwd);
         for (k, &i) in idxs.iter().enumerate() {
-            if let Some(stem) = files.get(k).and_then(|p| p.file_stem()).and_then(|s| s.to_str()) {
+            if let Some(stem) = files
+                .get(k)
+                .and_then(|p| p.file_stem())
+                .and_then(|s| s.to_str())
+            {
                 nodes[i].session_id = Some(stem.to_string());
             }
         }
@@ -245,26 +249,29 @@ fn run_scanner(tx: Sender<Vec<Agent>>) {
         let mut dirty: HashSet<PathBuf> = HashSet::new();
         let mut force_discovery = false;
 
-        let handle = |res: notify::Result<notify::Event>,
-                      dirty: &mut HashSet<PathBuf>,
-                      force: &mut bool| {
-            if let Ok(ev) = res {
-                for path in ev.paths {
-                    if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-                        continue;
-                    }
-                    match path.parent().and_then(|p| p.file_name()).map(|n| n.to_os_string()) {
-                        Some(name) => match dir_to_cwd.get(&name) {
-                            Some(cwd) => {
-                                dirty.insert(cwd.clone());
-                            }
-                            None => *force = true,
-                        },
-                        None => {}
+        let handle =
+            |res: notify::Result<notify::Event>, dirty: &mut HashSet<PathBuf>, force: &mut bool| {
+                if let Ok(ev) = res {
+                    for path in ev.paths {
+                        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                            continue;
+                        }
+                        match path
+                            .parent()
+                            .and_then(|p| p.file_name())
+                            .map(|n| n.to_os_string())
+                        {
+                            Some(name) => match dir_to_cwd.get(&name) {
+                                Some(cwd) => {
+                                    dirty.insert(cwd.clone());
+                                }
+                                None => *force = true,
+                            },
+                            None => {}
+                        }
                     }
                 }
-            }
-        };
+            };
 
         match first {
             Ok(res) => handle(res, &mut dirty, &mut force_discovery),

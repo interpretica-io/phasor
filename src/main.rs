@@ -31,15 +31,14 @@ mod config;
 mod discover;
 mod scan;
 mod server;
-mod transcript;
 mod tmux;
+mod transcript;
 mod ui;
 
 use anyhow::{Context, Result};
 use app::App;
 use crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind, MouseButton,
-    MouseEventKind,
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind, MouseButton, MouseEventKind,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -224,7 +223,11 @@ fn spawn_exec_window(subcmd: &str) -> Result<(tmux::Window, String)> {
 
     // tmux runs the window command through a shell, so shell-quote each argv
     // element to preserve boundaries (e.g. `sh -c "a; b"`).
-    let joined = cmd.iter().map(|a| shell_quote(a)).collect::<Vec<_>>().join(" ");
+    let joined = cmd
+        .iter()
+        .map(|a| shell_quote(a))
+        .collect::<Vec<_>>()
+        .join(" ");
     let win = tmux::new_window(&name, &cwd.to_string_lossy(), &joined)
         .context("failed to create tmux window")?;
     if let Some(sid) = sid {
@@ -238,7 +241,10 @@ fn spawn_exec_window(subcmd: &str) -> Result<(tmux::Window, String)> {
 /// openable in the dashboard).
 fn exec_window() -> Result<()> {
     let (win, shown) = spawn_exec_window("exec")?;
-    println!("phasor: launched [{}] in tmux window {} ({})", shown, win.id, win.name);
+    println!(
+        "phasor: launched [{}] in tmux window {} ({})",
+        shown, win.id, win.name
+    );
     Ok(())
 }
 

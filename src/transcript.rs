@@ -27,7 +27,13 @@ const WORKING_WINDOW: Duration = Duration::from_secs(20);
 fn encode_cwd(cwd: &Path) -> String {
     let s = cwd.to_string_lossy();
     s.chars()
-        .map(|c| if c == '/' || c == '.' || c == '_' { '-' } else { c })
+        .map(|c| {
+            if c == '/' || c == '.' || c == '_' {
+                '-'
+            } else {
+                c
+            }
+        })
         .collect()
 }
 
@@ -190,7 +196,10 @@ pub fn parse(path: &Path, root: &Path) -> Result<AgentState> {
                 //   - interactive entrypoint (not the programmatic "sdk-cli")
                 //   - content that actually STARTS with the command tag
                 let external = v.get("userType").and_then(|u| u.as_str()) == Some("external");
-                let sidechain = v.get("isSidechain").and_then(|b| b.as_bool()).unwrap_or(false);
+                let sidechain = v
+                    .get("isSidechain")
+                    .and_then(|b| b.as_bool())
+                    .unwrap_or(false);
                 let sdk = v
                     .get("entrypoint")
                     .and_then(|e| e.as_str())
@@ -202,7 +211,9 @@ pub fn parse(path: &Path, root: &Path) -> Result<AgentState> {
                         .and_then(|m| m.get("content"))
                         .and_then(|c| c.as_str())
                     {
-                        if c.trim_start().starts_with("<command-name>/add-dir</command-name>") {
+                        if c.trim_start()
+                            .starts_with("<command-name>/add-dir</command-name>")
+                        {
                             if let Some(arg) = between(c, "<command-args>", "</command-args>") {
                                 if let Some(p) = resolve_dir(arg.trim(), root) {
                                     dirs.insert(p);
@@ -270,7 +281,11 @@ fn push_phrase(state: &mut AgentState, txt: &str) {
 /// A working directory is one the agent actually *changes files in* — so only
 /// mutating tools count. Reads, greps, globs and shell commands are exploration
 /// (just "folders it used"), not where it works, and are ignored.
-fn harvest_tool_use(block: &serde_json::Value, state: &mut AgentState, dirs: &mut BTreeSet<PathBuf>) {
+fn harvest_tool_use(
+    block: &serde_json::Value,
+    state: &mut AgentState,
+    dirs: &mut BTreeSet<PathBuf>,
+) {
     let name = block.get("name").and_then(|n| n.as_str()).unwrap_or("");
     let input = block.get("input");
     let Some(input) = input else { return };
@@ -289,7 +304,10 @@ fn harvest_tool_use(block: &serde_json::Value, state: &mut AgentState, dirs: &mu
         return;
     }
 
-    if matches!(name, "Edit" | "Write" | "MultiEdit" | "NotebookEdit" | "Update") {
+    if matches!(
+        name,
+        "Edit" | "Write" | "MultiEdit" | "NotebookEdit" | "Update"
+    ) {
         for key in ["file_path", "notebook_path", "path"] {
             if let Some(p) = input.get(key).and_then(|p| p.as_str()) {
                 if let Some(parent) = PathBuf::from(p).parent() {

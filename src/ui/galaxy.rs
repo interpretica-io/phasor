@@ -114,12 +114,27 @@ fn draw_node(
 
     // Card on top (full width), arrows + folders below.
     let card_h = 5u16.min(inner.height.saturating_sub(2)).max(3);
-    let card = Rect { x: inner.x, y: inner.y, width: inner.width, height: card_h };
+    let card = Rect {
+        x: inner.x,
+        y: inner.y,
+        width: inner.width,
+        height: card_h,
+    };
     draw_card(buf, card, agent, idx, selected, external);
 
     if !folders.is_empty() && inner.bottom() > card.bottom() {
-        let arrow_color = if external { Color::Rgb(80, 85, 100) } else if selected { C_ARROW_SEL } else { C_ARROW };
-        let folder_style = if external { dim } else { Style::new().fg(C_FOLDER) };
+        let arrow_color = if external {
+            Color::Rgb(80, 85, 100)
+        } else if selected {
+            C_ARROW_SEL
+        } else {
+            C_ARROW
+        };
+        let folder_style = if external {
+            dim
+        } else {
+            Style::new().fg(C_FOLDER)
+        };
 
         // A solid "bus" drops from the card's bottom border and fans out one
         // arrow per folder.
@@ -135,7 +150,11 @@ fn draw_node(
         let n = folders.len();
         for (k, name) in folders.iter().enumerate() {
             let last = k + 1 == n;
-            let branch = if last { "╰──▶ " } else { "├──▶ " };
+            let branch = if last {
+                "╰──▶ "
+            } else {
+                "├──▶ "
+            };
             put_str(buf, inner, bus_x, fy, branch, arrow_st);
             let name_x = bus_x + branch.chars().count() as i32;
             put_str(buf, inner, name_x, fy, name, folder_style);
@@ -145,7 +164,9 @@ fn draw_node(
 
     // Just finished a task: a red stripe down the right edge of the cell for 3s.
     if agent.just_completed(COMPLETE_FLASH_SECS) {
-        let red = Style::new().fg(Color::Rgb(240, 70, 70)).add_modifier(Modifier::BOLD);
+        let red = Style::new()
+            .fg(Color::Rgb(240, 70, 70))
+            .add_modifier(Modifier::BOLD);
         let x = region.right() as i32 - 1;
         for y in region.y..region.bottom() {
             put_str(buf, region, x, y as i32, "▌", red);
@@ -172,8 +193,22 @@ fn draw_card(
     external: bool,
 ) {
     let (dot, dot_color) = match agent.state.status {
-        Status::Working => ("●", if external { Color::Rgb(120, 120, 130) } else { Color::Rgb(120, 230, 140) }),
-        Status::Idle => ("○", if external { Color::Rgb(120, 120, 130) } else { Color::Rgb(235, 205, 110) }),
+        Status::Working => (
+            "●",
+            if external {
+                Color::Rgb(120, 120, 130)
+            } else {
+                Color::Rgb(120, 230, 140)
+            },
+        ),
+        Status::Idle => (
+            "○",
+            if external {
+                Color::Rgb(120, 120, 130)
+            } else {
+                Color::Rgb(235, 205, 110)
+            },
+        ),
         Status::Unknown => ("·", Color::Rgb(150, 150, 160)),
     };
 
@@ -194,7 +229,10 @@ fn draw_card(
     let tag = if external {
         Span::styled(" ext ", Style::new().fg(Color::Rgb(120, 120, 135)))
     } else {
-        Span::styled(" ⧉ tmux ", Style::new().fg(C_TAG_TMUX).add_modifier(Modifier::BOLD))
+        Span::styled(
+            " ⧉ tmux ",
+            Style::new().fg(C_TAG_TMUX).add_modifier(Modifier::BOLD),
+        )
     };
     let mut block = Block::default()
         .borders(Borders::ALL)
@@ -219,14 +257,21 @@ fn draw_card(
     // --- big quick-jump number on the left (spans the 3 inner rows) ---
     let digits: Vec<usize> = {
         let num = idx + 1;
-        num.to_string().chars().map(|c| c as usize - '0' as usize).collect()
+        num.to_string()
+            .chars()
+            .map(|c| c as usize - '0' as usize)
+            .collect()
     };
     let num_style = if selected {
         Style::new().fg(C_ARROW_SEL).add_modifier(Modifier::BOLD)
     } else if external {
-        Style::new().fg(Color::Rgb(95, 100, 120)).add_modifier(Modifier::BOLD)
+        Style::new()
+            .fg(Color::Rgb(95, 100, 120))
+            .add_modifier(Modifier::BOLD)
     } else {
-        Style::new().fg(Color::Rgb(165, 185, 220)).add_modifier(Modifier::BOLD)
+        Style::new()
+            .fg(Color::Rgb(165, 185, 220))
+            .add_modifier(Modifier::BOLD)
     };
     for row in 0..3 {
         let mut line = String::new();
@@ -242,25 +287,53 @@ fn draw_card(
     let info_w = (in_card.right() as i32 - info_x).max(0) as usize;
 
     // row 0: status dot + name (+ ↻ when a repeating auto-instruction is set)
-    put_str(buf, in_card, info_x, cy, dot, Style::new().fg(dot_color).add_modifier(Modifier::BOLD));
+    put_str(
+        buf,
+        in_card,
+        info_x,
+        cy,
+        dot,
+        Style::new().fg(dot_color).add_modifier(Modifier::BOLD),
+    );
     let pending = agent.pending.is_some();
-    let name = clip(&agent.label(), info_w.saturating_sub(if pending { 4 } else { 2 }));
+    let name = clip(
+        &agent.label(),
+        info_w.saturating_sub(if pending { 4 } else { 2 }),
+    );
     // The session title is always shown in full colour, even for external
     // agents — only the rest of an external card is dimmed.
     let name_style = if selected {
         Style::new().fg(Color::White).add_modifier(Modifier::BOLD)
     } else {
-        Style::new().fg(Color::Rgb(205, 210, 225)).add_modifier(Modifier::BOLD)
+        Style::new()
+            .fg(Color::Rgb(205, 210, 225))
+            .add_modifier(Modifier::BOLD)
     };
     put_str(buf, in_card, info_x + 2, cy, &name, name_style);
     if pending {
-        put_str(buf, in_card, in_card.right() as i32 - 1, cy, "↻",
-            Style::new().fg(Color::Rgb(235, 205, 110)).add_modifier(Modifier::BOLD));
+        put_str(
+            buf,
+            in_card,
+            in_card.right() as i32 - 1,
+            cy,
+            "↻",
+            Style::new()
+                .fg(Color::Rgb(235, 205, 110))
+                .add_modifier(Modifier::BOLD),
+        );
     }
 
     // row 1: progress bar (always present) + activity load %, right-aligned
     if in_card.height >= 2 {
-        draw_progress(buf, in_card, info_x, cy + 1, info_w, agent.state.todos, external);
+        draw_progress(
+            buf,
+            in_card,
+            info_x,
+            cy + 1,
+            info_w,
+            agent.state.todos,
+            external,
+        );
         let load = agent.load();
         let s = format!("⚡{load}%");
         // ⚡ renders 2 cells wide; account for that when right-aligning.
@@ -283,7 +356,11 @@ fn draw_card(
         if let Some(p) = agent.state.last_phrases.back() {
             let phrase = clip_phrase(p, PHRASE_LEN.min(info_w));
             let pstyle = Style::new()
-                .fg(if external { Color::DarkGray } else { Color::Rgb(120, 125, 140) })
+                .fg(if external {
+                    Color::DarkGray
+                } else {
+                    Color::Rgb(120, 125, 140)
+                })
                 .add_modifier(Modifier::ITALIC);
             put_str(buf, in_card, info_x, cy + 2, &phrase, pstyle);
         }
@@ -306,9 +383,20 @@ fn draw_progress(
     match todos {
         Some((done, total)) if total > 0 => {
             let filled = ((done * w) / total).min(w);
-            let fcol = if external { Style::new().fg(Color::Rgb(90, 110, 100)) } else { Style::new().fg(C_BAR_FILL) };
+            let fcol = if external {
+                Style::new().fg(Color::Rgb(90, 110, 100))
+            } else {
+                Style::new().fg(C_BAR_FILL)
+            };
             put_str(buf, region, x, y, &"━".repeat(filled), fcol);
-            put_str(buf, region, x + filled as i32, y, &"─".repeat(w - filled), empty);
+            put_str(
+                buf,
+                region,
+                x + filled as i32,
+                y,
+                &"─".repeat(w - filled),
+                empty,
+            );
             put_str(
                 buf,
                 region,

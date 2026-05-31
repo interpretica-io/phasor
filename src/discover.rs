@@ -30,20 +30,31 @@ pub fn running_claudes() -> Vec<Proc> {
     let cwds: std::collections::HashMap<u32, PathBuf> = cwds_for(&pids).into_iter().collect();
     procs
         .into_iter()
-        .filter_map(|(pid, ppid)| cwds.get(&pid).map(|cwd| Proc { pid, ppid, cwd: cwd.clone() }))
+        .filter_map(|(pid, ppid)| {
+            cwds.get(&pid).map(|cwd| Proc {
+                pid,
+                ppid,
+                cwd: cwd.clone(),
+            })
+        })
         .collect()
 }
 
 /// (pid, ppid) of processes whose command name is exactly `claude`.
 fn claude_pids() -> Vec<(u32, u32)> {
-    let Ok(o) = Command::new("ps").args(["-axo", "pid=,ppid=,comm="]).output() else {
+    let Ok(o) = Command::new("ps")
+        .args(["-axo", "pid=,ppid=,comm="])
+        .output()
+    else {
         return Vec::new();
     };
     let text = String::from_utf8_lossy(&o.stdout);
     let mut out = Vec::new();
     for line in text.lines() {
         let mut it = line.split_whitespace();
-        let (Some(pid), Some(ppid)) = (it.next(), it.next()) else { continue };
+        let (Some(pid), Some(ppid)) = (it.next(), it.next()) else {
+            continue;
+        };
         let comm = it.collect::<Vec<_>>().join(" ");
         if comm == "claude" {
             if let (Ok(p), Ok(pp)) = (pid.parse(), ppid.parse()) {

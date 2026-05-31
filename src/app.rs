@@ -155,7 +155,11 @@ impl App {
             KeyCode::Char('p') => self.edit_projects = true,
             // Queue an instruction to auto-send when this agent finishes.
             KeyCode::Char('i') => match self.agents.get(self.selected) {
-                Some(a) if a.openable() => self.mode = Mode::Instruct { input: String::new() },
+                Some(a) if a.openable() => {
+                    self.mode = Mode::Instruct {
+                        input: String::new(),
+                    }
+                }
                 Some(_) => self.note("can't instruct an external claude (not in phasor's tmux)"),
                 None => {}
             },

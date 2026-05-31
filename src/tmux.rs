@@ -45,7 +45,9 @@ const TMUX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
 /// Spawn a command and wait at most `TMUX_TIMEOUT`; kill it if it hangs.
 fn run_timed(c: &mut Command) -> Result<std::process::Output> {
     use std::time::Instant;
-    c.stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null());
+    c.stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null());
     let mut child = c.spawn().context("failed to spawn tmux")?;
     let deadline = Instant::now() + TMUX_TIMEOUT;
     loop {
@@ -191,7 +193,9 @@ pub fn new_window(name: &str, cwd: &str, cmd: &str) -> Result<Window> {
         cmd,
     ])?;
     let line = out.lines().next().unwrap_or_default();
-    let (id, wname) = line.split_once('\t').context("unexpected new-window output")?;
+    let (id, wname) = line
+        .split_once('\t')
+        .context("unexpected new-window output")?;
     Ok(Window {
         id: id.to_string(),
         name: wname.to_string(),
@@ -231,7 +235,14 @@ pub fn new_session_id() -> String {
 /// Tag a window with the claude session id it's running, so the scanner can
 /// resolve that window's exact transcript file (not just the newest in the dir).
 pub fn set_window_session(window_id: &str, session_id: &str) -> Result<()> {
-    run(&["set-option", "-w", "-t", window_id, "@phasor_session", session_id])?;
+    run(&[
+        "set-option",
+        "-w",
+        "-t",
+        window_id,
+        "@phasor_session",
+        session_id,
+    ])?;
     Ok(())
 }
 
@@ -240,7 +251,14 @@ pub fn set_window_session(window_id: &str, session_id: &str) -> Result<()> {
 /// "already sent" marker so a freshly-queued instruction fires even if the
 /// agent is already finished/idle.
 pub fn set_window_pending(window_id: &str, instruction: &str) -> Result<()> {
-    run(&["set-option", "-w", "-t", window_id, "@phasor_pending", instruction])?;
+    run(&[
+        "set-option",
+        "-w",
+        "-t",
+        window_id,
+        "@phasor_pending",
+        instruction,
+    ])?;
     let _ = run(&["set-option", "-w", "-t", window_id, "@phasor_sent", ""]);
     Ok(())
 }
@@ -320,12 +338,19 @@ pub fn list_windows_with_cwd() -> Result<Vec<WinInfo>> {
     let mut v = Vec::new();
     for line in out.lines() {
         let mut parts = line.splitn(6, '\t');
-        let (Some(id), Some(name), Some(pid), Some(sid), Some(path)) =
-            (parts.next(), parts.next(), parts.next(), parts.next(), parts.next())
-        else {
+        let (Some(id), Some(name), Some(pid), Some(sid), Some(path)) = (
+            parts.next(),
+            parts.next(),
+            parts.next(),
+            parts.next(),
+            parts.next(),
+        ) else {
             continue;
         };
-        let pending = parts.next().filter(|s| !s.is_empty()).map(|s| s.to_string());
+        let pending = parts
+            .next()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
         if name == "_phasor" {
             continue;
         }
