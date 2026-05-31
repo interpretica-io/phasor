@@ -147,15 +147,15 @@ mod tests {
         let dir = tmp();
         let file = dir.join("projects.json");
         let ps = vec![
-            proj("Visao", "/u/visao", "#0400fa"),
-            proj("Mid", "/u/mid", "#10ad22"),
+            proj("Web", "/u/web", "#0400fa"),
+            proj("Api", "/u/api", "#10ad22"),
         ];
         save_to(&file, &ps).unwrap();
         assert!(file.exists());
         let back = load_from(&file);
         assert_eq!(back.len(), 2);
-        assert_eq!(back[0].name, "Visao");
-        assert_eq!(back[1].prefix, "/u/mid");
+        assert_eq!(back[0].name, "Web");
+        assert_eq!(back[1].prefix, "/u/api");
         assert_eq!(back[0].color, "#0400fa");
         let _ = std::fs::remove_dir_all(&dir);
     }

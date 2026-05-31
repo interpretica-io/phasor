@@ -23,14 +23,14 @@ line-drawn arrows fanning out to the folders it has touched (names only).
 ```
 ◍ phasor  1 in tmux · 6 external
 
- ╭ ◆ Visao ───────────────────────────╮
- │┏━┓  ● Analyze visao project overview│
+ ╭ ◆ Forge ───────────────────────────╮
+ │┏━┓  ● Analyze the build pipeline now│
  │┗━┓  ▰▰▰▰▰▱ 5/8                  ⚡42%│
  │┗━┛  Build and test:…                │
  ╰───┬────────────────────────────────╯
-     ├──▶ Visitors
-     ├──▶ Parsing
-     ╰──▶ VirtualMachine
+     ├──▶ api
+     ├──▶ parser
+     ╰──▶ runtime
 ```
 
 The big seven-segment number on the left is the **quick-jump key** (press it to
@@ -91,8 +91,8 @@ a JSON array of `{ name, prefix, color }`:
 
 ```json
 [
-  { "name": "Visao",  "prefix": "/Users/me/src/midair/visao", "color": "#0400fa" },
-  { "name": "Midair", "prefix": "/Users/me/src/midair",       "color": "#10ad22" }
+  { "name": "Backend", "prefix": "/home/you/src/acme/backend", "color": "#1f6bff" },
+  { "name": "Acme",    "prefix": "/home/you/src/acme",         "color": "#10ad22" }
 ]
 ```
 

@@ -346,8 +346,8 @@ mod tests {
     #[test]
     fn encode_cwd_replaces_special_chars() {
         assert_eq!(
-            encode_cwd(Path::new("/Users/m/src/app.rs_x.y")),
-            "-Users-m-src-app-rs-x-y"
+            encode_cwd(Path::new("/u/m/app.rs_x.y")),
+            "-u-m-app-rs-x-y"
         );
         assert_eq!(encode_cwd(Path::new("/a/b")), "-a-b");
     }
@@ -427,7 +427,7 @@ mod tests {
             r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/readonly/zzz.txt"}}]}}"#,
             r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TodoWrite","input":{"todos":[{"status":"completed"},{"status":"pending"}]}}]}}"#,
             r#"{"type":"user","userType":"external","isSidechain":false,"entrypoint":"cli","message":{"content":"<command-name>/add-dir</command-name>\n<command-args>/extra/dir</command-args>"}}"#,
-            r#"{"type":"user","userType":"external","isSidechain":true,"entrypoint":"cli","message":{"content":"<command-name>/add-dir</command-name>\n<command-args>/secret/dir</command-args>"}}"#,
+            r#"{"type":"user","userType":"external","isSidechain":true,"entrypoint":"cli","message":{"content":"<command-name>/add-dir</command-name>\n<command-args>/rejected/dir</command-args>"}}"#,
             r#"this line is not valid json"#,
             r#"{"type":"assistant","uuid":"turn-uuid","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"All done now. FINISHED COMPLETELY"}]}}"#,
         ];
@@ -442,7 +442,7 @@ mod tests {
         assert!(st.work_dirs.contains(&PathBuf::from("/work/src"))); // Edit parent
         assert!(st.work_dirs.contains(&PathBuf::from("/extra/dir"))); // valid add-dir
         assert!(!st.work_dirs.contains(&PathBuf::from("/readonly"))); // Read ignored
-        assert!(!st.work_dirs.contains(&PathBuf::from("/secret/dir"))); // sidechain rejected
+        assert!(!st.work_dirs.contains(&PathBuf::from("/rejected/dir"))); // sidechain rejected
 
         assert_eq!(st.last_phrases.len(), 2);
         assert_eq!(st.last_phrases.front().unwrap(), "hello world");
