@@ -74,6 +74,22 @@ graph, clustered and wrapped in per-project contours:
 tests both). phasor relies on tmux, `ps`/`lsof` and a few POSIX bits, so it does
 not run natively on **Windows**; use **WSL2** there.
 
+## Install
+
+**Homebrew** (builds from source; pulls in Rust + tmux automatically):
+
+```sh
+brew tap interpretica-io/phasor https://github.com/interpretica-io/phasor
+brew install --HEAD phasor      # latest from main
+# brew install phasor           # once a release is tagged + the formula's sha256 is set
+```
+
+**With Cargo:**
+
+```sh
+cargo install --git https://github.com/interpretica-io/phasor
+```
+
 ## Build & run
 
 ```sh
