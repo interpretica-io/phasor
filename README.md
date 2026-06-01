@@ -83,6 +83,14 @@ brew install --HEAD interpretica-io/tap/phasor   # latest from main
 # brew install interpretica-io/tap/phasor        # once a release is tagged + the formula's sha256 is set
 ```
 
+**Debian / Ubuntu** — grab the `.deb` from the
+[releases](https://github.com/interpretica-io/phasor/releases) and install it
+(pulls in tmux):
+
+```sh
+sudo apt install ./phasor_*_amd64.deb
+```
+
 **With Cargo:**
 
 ```sh
