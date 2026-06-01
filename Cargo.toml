@@ -23,3 +23,22 @@ portable-pty = "0.8"
 axum = { version = "0.8.9", features = ["ws"] }
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
 futures-util = "0.3.32"
+
+# Debian package metadata for `cargo deb` (https://github.com/kornelski/cargo-deb).
+# `description`, `license`, `homepage` are taken from [package] above.
+[package.metadata.deb]
+maintainer = "the phasor authors <noreply@users.noreply.github.com>"
+section = "utils"
+priority = "optional"
+# `$auto` = shared-library deps detected by dpkg-shlibdeps; tmux is required at runtime.
+depends = "$auto, tmux"
+extended-description = """\
+phasor monitors and orchestrates every running AI coding agent on your machine \
+— each in its own tmux window — as a live terminal and browser dashboard. \
+The `claude` CLI is required at runtime and is not packaged here."""
+assets = [
+    ["target/release/phasor", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/phasor/README.md", "644"],
+    ["LICENSE-MIT", "usr/share/doc/phasor/LICENSE-MIT", "644"],
+    ["LICENSE-APACHE", "usr/share/doc/phasor/LICENSE-APACHE", "644"],
+]
