@@ -38,24 +38,32 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
+      - name: Build .deb (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cargo install cargo-deb --locked
+          cargo deb --no-build --target ${{ matrix.target }}
+
       - name: Package
         shell: bash
         run: |
+          mkdir -p dist
           name="phasor-${GITHUB_REF_NAME}-${{ matrix.target }}"
           bin="target/${{ matrix.target }}/release/phasor"
           strip "$bin" || true
           mkdir "$name"
           cp "$bin" "$name/"
           cp README.md "$name/" 2>/dev/null || true
-          tar -czf "$name.tar.gz" "$name"
-          shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
-          echo "ASSET=$name.tar.gz" >> "$GITHUB_ENV"
+          tar -czf "dist/$name.tar.gz" "$name"
+          (cd dist && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256")
+          # Include the Debian package built above (Linux only).
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            cp target/${{ matrix.target }}/debian/*.deb dist/
+          fi
 
       - name: Publish to the release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            ${{ env.ASSET }}
-            ${{ env.ASSET }}.sha256
+          files: dist/*
           fail_on_unmatched_files: true
           generate_release_notes: true
